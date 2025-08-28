@@ -234,12 +234,8 @@ class JSONRefactorer:
             if any(keyword.lower() in text_lower for keyword in keywords):
                 implications.append(region)
         
-        # Default assumptions for Phase 1A
-        if not implications:
-            if "global" in text_lower or "worldwide" in text_lower:
-                implications = ["US", "EU", "Brazil"]  # Major markets
-            else:
-                implications = ["US"]  # Default to US market
+        # For ambiguous cases, let the LLM-based analysis or Lawyer Agent handle it
+        # No hardcoded default assumptions
         
         return implications
     
@@ -298,7 +294,7 @@ Analyze this TikTok feature for regulatory implications:
 Provide comprehensive analysis in JSON format:
 {{
     "expanded_description": "Detailed description with legal context and regulatory implications",
-    "geographic_implications": ["Utah", "EU", "California", "Florida", "Brazil"],
+    "geographic_implications": ["Only jurisdictions relevant to this specific feature - be selective"],
     "feature_category": "Content Moderation",
     "risk_indicators": ["content filtering", "user safety", "transparency requirements"],
     "terminology_expansions": {{"LCP": "Legal Compliance Protocol", "ShadowMode": "Testing deployment mode"}}
@@ -313,11 +309,17 @@ CRITICAL: Ensure these exact data types:
 
 Analysis Guidelines:
 1. **TikTok Terminology**: Expand any TikTok-specific jargon (ASL→American Sign Language, jellybean→feature component, LIVE→live streaming, etc.)
-2. **Content Moderation**: Features involving content restrictions, filtering, or moderation trigger EU DSA and transparency requirements
-3. **Minor Protection**: Any feature accessible to users under 18 triggers Utah, Florida minor protection laws
-4. **Data Processing**: Features collecting/processing data trigger GDPR (EU), CCPA (California), LGPD (Brazil)
-5. **Commerce**: Payment processing, shopping features trigger financial regulations and minor protection
-6. **Geographic Scope**: Infer jurisdictions based on feature type and scope
+2. **Geographic Scope**: ONLY include jurisdictions that are specifically relevant to this feature:
+   - If feature mentions California, SB976, CCPA → include "California" 
+   - If feature mentions Utah-specific regulations → include "Utah"
+   - If feature mentions EU, GDPR, DSA → include "EU"
+   - If feature mentions Florida regulations → include "Florida" 
+   - If feature mentions Brazil, LGPD → include "Brazil"
+   - If feature is global/unspecified → include relevant major jurisdictions based on feature type
+3. **Content Moderation**: Features involving content restrictions, filtering, or moderation may trigger EU DSA requirements
+4. **Minor Protection**: Features specifically targeting or affecting minors may trigger Utah, Florida, California laws
+5. **Data Processing**: Features collecting/processing data may trigger GDPR (EU), CCPA (California), LGPD (Brazil)
+6. **Commerce**: Payment processing, shopping features may trigger financial regulations
 
 Specific Focus Areas:
 - Content moderation and filtering → EU, US transparency requirements

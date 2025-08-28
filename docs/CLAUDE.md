@@ -189,6 +189,9 @@ open http://localhost:8501
 # Run tests
 uv run pytest tests/
 
+# Run dynamic system tests
+uv run python test_dynamic_system.py
+
 # Code formatting
 uv run black src/
 uv run isort src/
