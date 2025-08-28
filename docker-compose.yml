@@ -1,0 +1,98 @@
+# Docker Compose - Phase 1D Implementation
+# Complete system deployment for backbone handoff
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=geolegal
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d geolegal"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache (for Team Member 1)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Main Application Container
+  app:
+    build: .
+    ports:
+      - "8000:8000"  # FastAPI
+      - "8501:8501"  # Streamlit
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres:5432/geolegal
+      - REDIS_URL=redis://redis:6379/0
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - API_KEY=demo-key-2025
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=development
+      # Phase 1 feature flags
+      - ENABLE_CACHING=false
+      - ENABLE_REAL_MCPS=false
+      - ENABLE_BATCH_PROCESSING=false
+      - ENABLE_WORKFLOW_VIZ=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  # TODO: Team Member 1 - Add MCP services when ready
+  # utah-mcp:
+  #   image: tiktok-mcps/utah:latest
+  #   ports:
+  #     - "8010:8000"
+  #   environment:
+  #     - LOG_LEVEL=INFO
+  #     - CHROMA_HOST=chroma
+  #     - CHROMA_PORT=8000
+  #   depends_on:
+  #     - chroma
+
+  # TODO: MCP Team - ChromaDB for vector storage
+  # chroma:
+  #   image: chromadb/chroma:latest
+  #   ports:
+  #     - "8001:8000"
+  #   volumes:
+  #     - chroma_data:/chroma/chroma
+  #   environment:
+  #     - CHROMA_SERVER_HOST=0.0.0.0
+  #     - CHROMA_SERVER_HTTP_PORT=8000
+
+volumes:
+  postgres_data:
+  redis_data:
+  # chroma_data:  # Uncomment when MCP team is ready
+
+networks:
+  default:
+    name: geolegal-network

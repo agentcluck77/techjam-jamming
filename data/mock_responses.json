@@ -1,0 +1,107 @@
+{
+  "utah": {
+    "jurisdiction": "Utah",
+    "applicable_regulations": [
+      "Utah Social Media Regulation Act (2024)",
+      "Minor Protection Requirements"
+    ],
+    "compliance_required": true,
+    "risk_level": 4,
+    "requirements": [
+      "Age verification required for users under 18",
+      "Curfew restrictions: 10:30 PM - 6:30 AM for minors",
+      "Parental controls and account access",
+      "Data collection limitations for minors"
+    ],
+    "implementation_steps": [
+      "Implement robust ID verification system",
+      "Add curfew enforcement mechanisms",
+      "Create parental dashboard and controls",
+      "Limit data collection for verified minors"
+    ],
+    "confidence": 0.85,
+    "reasoning": "Feature involves user interaction and potential minor usage, triggering Utah's strict social media regulations for child protection.",
+    "analysis_time": 0.7
+  },
+  "eu": {
+    "jurisdiction": "European Union",
+    "applicable_regulations": [
+      "Digital Services Act (DSA)",
+      "General Data Protection Regulation (GDPR)",
+      "Digital Markets Act (DMA)"
+    ],
+    "compliance_required": true,
+    "risk_level": 3,
+    "requirements": [
+      "Content moderation transparency requirements",
+      "User notification and appeal systems",
+      "Risk assessment for systemic risks",
+      "Data processing consent mechanisms"
+    ],
+    "implementation_steps": [
+      "Implement transparent content moderation policies",
+      "Create user appeal and notification system",
+      "Conduct systematic risk assessments",
+      "Enhance GDPR consent mechanisms"
+    ],
+    "confidence": 0.80,
+    "reasoning": "EU regulations focus on platform transparency and user rights, requiring comprehensive compliance measures for content and data handling.",
+    "analysis_time": 0.8
+  },
+  "california": {
+    "jurisdiction": "California",
+    "applicable_regulations": [
+      "California Consumer Privacy Act (CCPA)",
+      "Children's Online Privacy Protection Act (COPPA)",
+      "Age-Appropriate Design Code"
+    ],
+    "compliance_required": false,
+    "risk_level": 2,
+    "requirements": [
+      "Enhanced privacy disclosures",
+      "Data subject rights implementation"
+    ],
+    "implementation_steps": [
+      "Update privacy policy with CCPA requirements",
+      "Implement data deletion and portability features"
+    ],
+    "confidence": 0.75,
+    "reasoning": "Feature appears to have limited privacy impact, requiring standard CCPA compliance but no child-specific regulations.",
+    "analysis_time": 0.6
+  },
+  "florida": {
+    "jurisdiction": "Florida",
+    "applicable_regulations": [
+      "Florida Online Protections for Minors Act"
+    ],
+    "compliance_required": true,
+    "risk_level": 3,
+    "requirements": [
+      "Parental control requirements",
+      "Content filtering for minors",
+      "Account access limitations for minors"
+    ],
+    "implementation_steps": [
+      "Implement parental oversight features",
+      "Add content filtering capabilities",
+      "Create minor account restrictions"
+    ],
+    "confidence": 0.70,
+    "reasoning": "Florida's minor protection laws require parental controls and content filtering for features accessible to users under 16.",
+    "analysis_time": 0.5
+  },
+  "brazil": {
+    "jurisdiction": "Brazil",
+    "applicable_regulations": [
+      "Lei Geral de Proteção de Dados (LGPD)",
+      "Data Localization Requirements"
+    ],
+    "compliance_required": false,
+    "risk_level": 1,
+    "requirements": [],
+    "implementation_steps": [],
+    "confidence": 0.90,
+    "reasoning": "Feature does not involve significant data processing or storage that would trigger Brazil's data localization requirements.",
+    "analysis_time": 0.4
+  }
+}
