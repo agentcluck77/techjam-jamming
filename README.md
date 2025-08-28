@@ -8,6 +8,7 @@ Multi-agent AI system for TikTok compliance analysis across global jurisdictions
 
 ## 🚀 Quick Start
 
+### Option 1: Docker (Recommended)
 ```bash
 # 1. Setup environment
 git clone <repository> && cd techjam-jamming
@@ -22,6 +23,38 @@ cp .env.template .env
 docker-compose up -d
 
 # 4. Access
+# - UI: http://localhost:8501
+# - API: http://localhost:8000
+# - Docs: http://localhost:8000/docs
+```
+
+### Option 2: Local Development with uv
+```bash
+# 1. Setup environment
+git clone <repository> && cd techjam-jamming
+cp .env.template .env
+
+# 2. Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 3. Install dependencies
+uv sync
+
+# 4. Add API key to .env (any one works)
+# GOOGLE_API_KEY=your_key  # FREE tier available
+# ANTHROPIC_API_KEY=your_key
+# OPENAI_API_KEY=your_key
+
+# 5. Start PostgreSQL (required)
+docker-compose up -d postgres
+
+# 6. Run the application
+uv run python -m src.main
+
+# 7. In another terminal, run the UI
+uv run streamlit run src/ui/app.py
+
+# 8. Access
 # - UI: http://localhost:8501
 # - API: http://localhost:8000
 # - Docs: http://localhost:8000/docs
