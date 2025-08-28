@@ -68,6 +68,25 @@ class LawyerAgent:
         except Exception as e:
             # Fallback to basic LLM response if MCP search fails
             return await self._fallback_user_query_response(user_query, context)
+    
+    async def handle_enriched_query(self, enriched_context: Dict[str, Any]) -> UserQueryResponse:
+        """
+        Handle user queries that have been processed through JSON Refactorer
+        Uses enriched context for better legal analysis
+        """
+        
+        # Extract original query information from enriched context
+        query_info = {
+            "query": enriched_context.get("expanded_description", ""),
+            "context": {
+                "geographic_implications": enriched_context.get("geographic_implications", []),
+                "risk_indicators": enriched_context.get("risk_indicators", []),
+                "feature_category": enriched_context.get("feature_category", "")
+            }
+        }
+        
+        # Process as enhanced user query with enriched context
+        return await self.handle_user_query(query_info)
 
     async def _generate_legal_advice(self, query: str, context: Dict, legal_context: List[Dict]) -> Dict[str, Any]:
         """Generate legal advice using MCP search results and LLM"""

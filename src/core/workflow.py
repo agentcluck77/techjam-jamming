@@ -26,71 +26,66 @@ class EnhancedWorkflowOrchestrator:
         self.lawyer_agent = LawyerAgent(mcp_client=mcp_client)
         self.cache = cache_manager  # Team Member 1 will implement
         
-        # Build the workflow graphs for different input types
-        self.feature_workflow = self._build_feature_workflow()
-        self.query_workflow = self._build_query_workflow()
-        # TODO: Team Member 3 - PDF workflow
-        # self.pdf_workflow = self._build_pdf_workflow()
+        # Build unified workflow - ALL inputs go through same pipeline
+        self.unified_workflow = self._build_unified_workflow()
     
-    def _build_feature_workflow(self) -> StateGraph:
-        """Build the feature analysis workflow"""
+    def _build_unified_workflow(self) -> StateGraph:
+        """
+        Build unified workflow - ALL inputs go through same pipeline:
+        Input → JSON Refactorer → Lawyer Agent → Output
+        """
         
         workflow = StateGraph(WorkflowState)
         
-        # Add nodes for feature analysis path
-        workflow.add_node("json_refactorer", self._json_refactor_node)
-        workflow.add_node("legal_analysis", self._legal_analysis_node) 
-        workflow.add_node("decision_synthesis", self._decision_synthesis_node)
+        # Add nodes for unified pipeline
+        workflow.add_node("input_preprocessing", self._input_preprocessing_node)  # Handle batch/PDF extraction
+        workflow.add_node("json_refactorer", self._json_refactor_node)            # ALL inputs processed here
+        workflow.add_node("lawyer_agent", self._lawyer_agent_node)                # Handles both analysis + advisory
         
-        # Add edges - Sequential execution for feature analysis
-        workflow.add_edge(START, "json_refactorer")
-        workflow.add_edge("json_refactorer", "legal_analysis")
-        workflow.add_edge("legal_analysis", "decision_synthesis")
-        workflow.add_edge("decision_synthesis", END)
-        
-        return workflow.compile()
-    
-    def _build_query_workflow(self) -> StateGraph:
-        """Build the user query workflow"""
-        
-        workflow = StateGraph(WorkflowState)
-        
-        # Add node for direct query handling
-        workflow.add_node("query_handler", self._query_handler_node)
-        
-        # Simple direct execution for queries
-        workflow.add_edge(START, "query_handler")
-        workflow.add_edge("query_handler", END)
+        # Sequential execution for all input types
+        workflow.add_edge(START, "input_preprocessing")
+        workflow.add_edge("input_preprocessing", "json_refactorer") 
+        workflow.add_edge("json_refactorer", "lawyer_agent")
+        workflow.add_edge("lawyer_agent", END)
         
         return workflow.compile()
     
     async def process_request(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Enhanced request processing with smart routing
-        Routes to appropriate workflow based on input type detection
+        Unified request processing - ALL inputs go through same workflow:
+        Input → Preprocessing → JSON Refactorer → Lawyer Agent → Output
         """
         
-        # Detect input type using simple Python logic
+        # Detect input type for preprocessing decisions
         input_type = self._detect_input_type(request_data)
         
-        # Route to appropriate processing method
-        if input_type == "feature_description":
-            return await self._process_feature_analysis(request_data)
-        elif input_type == "user_query":
-            return await self._process_user_query(request_data)
-        elif input_type == "pdf_document":
-            # TODO: Team Member 3 - Implement PDF processing
-            return self._create_missing_info_response(
-                "PDF processing not yet implemented. Please provide feature description instead.",
-                ["feature_description"],
-                ["Describe the feature you want to analyze in text format"]
-            )
-        else:
-            return self._create_missing_info_response(
-                "Unable to determine input type. Please provide either a feature description or ask a question.",
-                ["name", "description"],
-                ["Provide structured feature data with name and description", "Ask a direct question about compliance"]
-            )
+        # Initialize workflow state for unified pipeline
+        initial_state = WorkflowState(
+            input_data=request_data,
+            input_type=input_type,
+            feature_id=str(uuid.uuid4()),
+            execution_path=[],
+            start_time=datetime.now()
+        )
+        
+        try:
+            # Execute unified workflow for ALL input types
+            result = await self.unified_workflow.ainvoke(initial_state)
+            
+            # Return final decision
+            if result.get("final_decision"):
+                final_decision = result["final_decision"]
+                # Handle both Pydantic model and dict cases
+                if hasattr(final_decision, 'model_dump'):
+                    return final_decision.model_dump()
+                else:
+                    return final_decision
+            else:
+                raise Exception("Processing completed but no final decision generated")
+                
+        except Exception as e:
+            # Error handling
+            return self._create_error_response(str(e), initial_state)
     
     def _detect_input_type(self, request_data: Dict[str, Any]) -> str:
         """
@@ -120,187 +115,93 @@ class EnhancedWorkflowOrchestrator:
         
         return "unknown"
     
-    async def _process_feature_analysis(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Process structured feature analysis request"""
+    async def _input_preprocessing_node(self, state: WorkflowState) -> WorkflowState:
+        """
+        Input preprocessing workflow node - handles batch/PDF extraction
+        Routes different input types for preprocessing before JSON Refactorer
+        """
         
-        # Initialize workflow state
-        initial_state = WorkflowState(
-            input_data=request_data,
-            input_type="feature_description",
-            feature_id=str(uuid.uuid4()),
-            execution_path=[],
-            start_time=datetime.now()
-        )
+        state.execution_path.append("input_preprocessing")
         
         try:
-            # Execute feature analysis workflow
-            result = await self.feature_workflow.ainvoke(initial_state)
-            
-            # Return final decision
-            if result.get("final_decision"):
-                final_decision = result["final_decision"]
-                # Handle both Pydantic model and dict cases
-                if hasattr(final_decision, 'model_dump'):
-                    return final_decision.model_dump()
-                else:
-                    return final_decision
+            if state.input_type == "csv_batch":
+                # TODO: Team Member 2 - Extract multiple features from CSV
+                # For now, pass through as-is
+                pass
+            elif state.input_type == "pdf_document":
+                # TODO: Team Member 2 - Extract features from PDF content
+                # For now, return not implemented error
+                state.error_state = "PDF processing not yet implemented by Team Member 2"
             else:
-                raise Exception("Feature analysis completed but no final decision generated")
+                # Single features and queries pass through unchanged
+                pass
                 
         except Exception as e:
-            # Error handling
-            return self._create_error_response(str(e), initial_state)
-    
-    async def _process_user_query(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Process user query request"""
+            state.error_state = f"Input preprocessing failed: {str(e)}"
         
-        # Extract query from various possible keys
-        query_text = None
-        for key in ["query", "question", "message"]:
-            if key in request_data:
-                query_text = request_data[key]
-                break
-        
-        # If single key-value pair, use the value as query
-        if not query_text and len(request_data) == 1:
-            query_text = next(iter(request_data.values()))
-        
-        if not query_text:
-            return self._create_missing_info_response(
-                "No query text found. Please provide your question.",
-                ["query"],
-                ["Ask a question about TikTok compliance or regulations"]
-            )
-        
-        # Initialize workflow state for query processing
-        initial_state = WorkflowState(
-            input_data={"query": query_text, "context": request_data.get("context", {})},
-            input_type="user_query",
-            feature_id=str(uuid.uuid4()),
-            execution_path=[],
-            start_time=datetime.now()
-        )
-        
-        try:
-            # Execute query workflow
-            result = await self.query_workflow.ainvoke(initial_state)
-            
-            # Return final response
-            if result.get("final_decision"):
-                final_decision = result["final_decision"]
-                # Handle both Pydantic model and dict cases
-                if hasattr(final_decision, 'model_dump'):
-                    return final_decision.model_dump()
-                else:
-                    return final_decision
-            else:
-                raise Exception("Query processing completed but no response generated")
-                
-        except Exception as e:
-            # Error handling
-            return self._create_query_error_response(str(e))
+        return state
     
     async def _json_refactor_node(self, state: WorkflowState) -> WorkflowState:
         """
-        JSON Refactorer workflow node
-        Phase 1A: Basic terminology expansion
+        JSON Refactorer workflow node - processes ALL input types
+        Converts any input into enriched context for legal analysis
         """
         
         state.execution_path.append("json_refactorer")
         
+        if state.error_state:
+            return state
+        
         try:
-            # TODO: Team Member 1 - Add caching check here
-            # if self.cache:
-            #     cached_result = await self.cache.get_cached_context(state.input_data)
-            #     if cached_result:
-            #         state.enriched_context = cached_result
-            #         return state
-            
-            # Process input through JSON Refactorer
-            enriched_context = await self.json_refactorer.process(state.input_data)
-            state.enriched_context = enriched_context.model_dump()
-            
-            # TODO: Team Member 1 - Cache the result
-            # if self.cache:
-            #     await self.cache.cache_context(state.input_data, state.enriched_context)
+            # Process input through enhanced JSON Refactorer (handles all input types)
+            enriched_context = await self.json_refactorer.process_any_input(state.input_data, state.input_type)
+            state.enriched_context = enriched_context.model_dump() if hasattr(enriched_context, 'model_dump') else enriched_context
             
         except Exception as e:
             state.error_state = f"JSON Refactorer failed: {str(e)}"
         
         return state
     
-    async def _legal_analysis_node(self, state: WorkflowState) -> WorkflowState:
+    async def _lawyer_agent_node(self, state: WorkflowState) -> WorkflowState:
         """
-        Legal analysis workflow node
-        Phase 1A: Mock MCP analysis
-        """
-        
-        state.execution_path.append("legal_analysis")
-        
-        if state.error_state or not state.enriched_context:
-            return state
-        
-        try:
-            # Get jurisdiction analyses through Lawyer Agent
-            # Phase 1A: Uses mock MCPs
-            final_decision = await self.lawyer_agent.analyze(state.enriched_context)
-            state.legal_analyses = [analysis.model_dump() for analysis in final_decision.jurisdiction_details]
-            
-        except Exception as e:
-            state.error_state = f"Legal analysis failed: {str(e)}"
-        
-        return state
-    
-    async def _decision_synthesis_node(self, state: WorkflowState) -> WorkflowState:
-        """
-        Decision synthesis workflow node
-        Phase 1A: Basic decision aggregation
+        Unified lawyer agent workflow node - handles both analysis and advisory
+        Determines response type based on input and returns appropriate format
         """
         
-        state.execution_path.append("decision_synthesis")
+        state.execution_path.append("lawyer_agent")
         
         if state.error_state:
-            # Create error response
-            state.final_decision = self._create_error_response(
-                state.error_state,
-                state
-            )
+            # Create error response based on input type
+            if state.input_type == "user_query":
+                state.final_decision = self._create_query_error_response(state.error_state)
+            else:
+                state.final_decision = self._create_error_response(state.error_state, state)
+            return state
+        
+        if not state.enriched_context:
+            state.error_state = "No enriched context available for legal analysis"
             return state
         
         try:
-            # Re-run lawyer agent analysis to get final decision
-            # (In Phase 1A, this is a bit redundant but maintains clear separation)
-            final_decision = await self.lawyer_agent.analyze(state.enriched_context)
+            # Lawyer Agent determines output format based on input type
+            if state.input_type == "user_query":
+                # Return advisory response for queries
+                final_decision = await self.lawyer_agent.handle_enriched_query(state.enriched_context)
+            else:
+                # Return compliance analysis for features/documents/batch
+                final_decision = await self.lawyer_agent.analyze(state.enriched_context)
+            
             state.final_decision = final_decision
             
             # Record end time
             state.end_time = datetime.now()
             
         except Exception as e:
-            state.error_state = f"Decision synthesis failed: {str(e)}"
-            state.final_decision = self._create_error_response(str(e), state)
-        
-        return state
-    
-    async def _query_handler_node(self, state: WorkflowState) -> WorkflowState:
-        """
-        Direct query handler workflow node
-        Routes user queries to Lawyer Agent for advisory responses
-        """
-        
-        state.execution_path.append("query_handler")
-        
-        try:
-            # Process query through Lawyer Agent
-            query_response = await self.lawyer_agent.handle_user_query(state.input_data)
-            state.final_decision = query_response
-            
-            # Record end time
-            state.end_time = datetime.now()
-            
-        except Exception as e:
-            state.error_state = f"Query handler failed: {str(e)}"
-            state.final_decision = self._create_query_error_response(str(e))
+            state.error_state = f"Lawyer agent processing failed: {str(e)}"
+            if state.input_type == "user_query":
+                state.final_decision = self._create_query_error_response(str(e))
+            else:
+                state.final_decision = self._create_error_response(str(e), state)
         
         return state
     

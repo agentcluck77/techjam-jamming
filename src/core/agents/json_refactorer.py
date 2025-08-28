@@ -114,6 +114,68 @@ class JSONRefactorer:
         
         return enriched_context
     
+    async def process_any_input(self, input_data: Dict[str, Any], input_type: str, retry_count: int = 0) -> EnrichedContext:
+        """
+        Universal input processing method - handles ALL input types
+        Converts any input into enriched context for legal analysis
+        """
+        
+        if input_type == "feature_description":
+            # Standard feature processing
+            return await self.process(input_data, retry_count)
+        
+        elif input_type == "user_query":
+            # Convert query to feature-like enriched context
+            return await self._process_user_query(input_data, retry_count)
+        
+        elif input_type == "csv_batch":
+            # TODO: Team Member 2 - Process multiple features from CSV
+            # For now, treat as single feature
+            return await self.process(input_data, retry_count)
+            
+        elif input_type == "pdf_document":
+            # TODO: Team Member 2 - Process extracted features from PDF
+            # For now, return error
+            raise Exception("PDF processing not implemented by Team Member 2")
+            
+        else:
+            # Fallback - treat as feature
+            return await self.process(input_data, retry_count)
+    
+    async def _process_user_query(self, query_data: Dict[str, Any], retry_count: int = 0) -> EnrichedContext:
+        """
+        Convert user query into enriched context format
+        Transforms questions into feature-like analysis context
+        """
+        
+        # Extract query text
+        query_text = None
+        for key in ["query", "question", "message"]:
+            if key in query_data:
+                query_text = query_data[key]
+                break
+        
+        if not query_text and len(query_data) == 1:
+            query_text = next(iter(query_data.values()))
+        
+        if not query_text:
+            raise Exception("No query text found in input")
+        
+        # Convert query to feature-like structure for processing
+        feature_data = {
+            "name": "User Query Analysis",
+            "description": query_text,
+            "geographic_context": query_data.get("context", {}).get("geographic_context", "")
+        }
+        
+        # Process through standard feature pipeline
+        enriched_context = await self.process(feature_data, retry_count)
+        
+        # Mark as query for downstream processing
+        enriched_context.processing_notes += " (Converted from user query)"
+        
+        return enriched_context
+    
     def _is_complete(self, enriched_context: EnrichedContext) -> bool:
         """
         Validate completeness of enriched context

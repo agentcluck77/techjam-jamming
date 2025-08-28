@@ -31,7 +31,7 @@ docker-compose up -d
 
 ## 👥 Team Assignments
 
-### 🔍 **MCP Team** (Lucas & JH) - CRITICAL PATH
+### 🔍 **MCP Team** (Lucas & JH)
 **Deliverable**: 5 Legal Search Services
 
 #### Your Files
@@ -63,17 +63,16 @@ GET /health                   # Health check
 
 **Deliverable**: Real MCP client + system monitoring
 
-#### Your Files  
+#### Your Files (Placeholder Files Created ✅)
 ```
-src/services/                  # YOUR DOMAIN
-├── mcp_client.py             # HTTP client for MCP services
-├── llm_router.py             # Enhanced LLM fallback chains
-└── metrics.py                # Performance monitoring
+src/services/mcp_client.py              # TODO: Replace mock MCPs with HTTP calls
+src/services/metrics.py                 # TODO: Implement performance metrics collection  
+src/services/performance_monitor.py     # TODO: Add real-time monitoring & alerts
 
-# MODIFY ONLY THESE LINES:
-src/core/workflow.py          # Lines 393-404 (MCP injection)
-src/core/agents/lawyer_agent.py # Lines 21-24 (MCP dependency)
-src/main.py                   # Lines 34-40, 79-91, 265-275 (health/metrics)
+# MODIFY EXISTING FILES (update imports/integrations):
+src/core/agents/lawyer_agent.py         # Update Line 24: Use real MCP client
+src/core/workflow.py                    # Update Line 26: Inject real MCP client  
+src/main.py                             # Add health/metrics endpoints
 ```
 
 #### Tasks
@@ -85,59 +84,162 @@ src/main.py                   # Lines 34-40, 79-91, 265-275 (health/metrics)
 
 ---
 
-### ⚡ **Team Member 2** - UI & Batch Processing  
+### ⚡ **Team Member 2** - UI, Batch Processing & Document Processing
 **What & Why**: Transform basic UI into a production-ready platform. Currently users can only analyze one feature at a time.
 
 **Business Impact**:
 - **Productivity**: Batch processing lets users analyze 50+ features from CSV instead of one-by-one
+- **Document Processing**: Users can upload PDF specifications and extract features automatically
 - **Insights**: Workflow visualization shows users exactly how their features get analyzed
 - **User Experience**: Interactive dashboards make the system feel professional vs prototype
 
-**Deliverable**: Enhanced UI + CSV batch processing
+**Deliverable**: Enhanced UI + CSV batch processing + PDF document processing
 
-#### Your Files
+#### Your Files (Placeholder Files Created ✅)
 ```
-src/ui/components/            # YOUR DOMAIN
-├── batch_processor.py        # CSV upload interface
-├── workflow_viz.py           # Real-time visualization
-├── metrics_dashboard.py      # Performance dashboard
-└── enhanced_results.py       # Interactive results
+src/ui/components/batch_processor.py        # TODO: CSV upload & batch processing UI
+src/ui/components/document_processor.py     # TODO: PDF upload & feature extraction UI  
+src/ui/components/enhanced_results.py       # TODO: Interactive charts & visualizations
+src/ui/components/metrics_dashboard.py      # TODO: Real-time performance dashboard
+src/ui/components/workflow_viz.py           # ✅ Already exists - enhance as needed
 
-src/api/endpoints/            # YOUR DOMAIN
-└── batch.py                  # Batch processing API
+src/api/endpoints/batch.py                  # TODO: Batch processing API endpoints
+src/api/endpoints/documents.py              # TODO: PDF processing API endpoints
 
-# MODIFY ONLY THESE LINES:
-src/ui/app.py                 # Lines 60-74, 385-472 (new components)
-src/main.py                   # Lines 213-243 (batch endpoints)
+# MODIFY EXISTING FILES (integrate new components):
+src/ui/app.py                               # Import & integrate new UI components
+src/main.py                                 # Add new API endpoint routers
+src/core/workflow.py                        # Already updated for unified workflow ✅
 ```
 
 #### Tasks
 - CSV batch upload with background processing
+- PDF document upload and feature extraction
 - Real-time workflow visualization 
 - Interactive performance dashboard
 - Enhanced UI with charts and progress tracking
-- Enable flags: `ENABLE_BATCH_PROCESSING=true`, `ENABLE_WORKFLOW_VIZ=true`
+- Enable flags: `ENABLE_BATCH_PROCESSING=true`, `ENABLE_WORKFLOW_VIZ=true`, `ENABLE_PDF_PROCESSING=true`
 
 #### Search for: `# TODO: Team Member 2`
 
 ---
 
-## 🏗️ System Architecture
+## 🏗️ Target Architecture (Unified Workflow)
 
-### Current (Phase 1)
-```
-User Input → Smart Router → AI Agents → Mock MCPs → Results
-├── JSON Refactorer (TikTok jargon expansion)
-├── Lawyer Agent (compliance analysis) 
-└── LLM Enhancement (Gemini/Claude/GPT)
-```
-
-### Target (Phase 2)
-```  
-User Input → Router → AI Agents → Real MCPs → Results
-├── Real MCP Services (MCP Team)
-├── Batch Processing (Team Member 2)
-└── Performance Monitoring (Team Member 1)
+```mermaid
+graph TB
+    subgraph "Enhanced Frontend Layer"
+        UI[Enhanced Streamlit UI<br/>✅ Basic UI Working<br/>🔧 Team Member 2: Dashboards + Charts]
+        API[FastAPI REST API<br/>✅ Core API Working<br/>🔧 Team Member 2: + Batch Endpoints]
+    end
+    
+    subgraph "Core Services"
+        WF[LangGraph Workflow<br/>✅ Current Implementation<br/>🔧 Needs: Unified Pipeline Fix]
+        RT[Input Router<br/>✅ Type Detection Working<br/>🔧 Needs: Route Everything to JSON Refactorer]
+    end
+    
+    subgraph "Unified Processing Pipeline"
+        JR[JSON Refactorer<br/>✅ Working for Features<br/>🔧 Needs: Handle ALL input types]
+        BP[Batch Processor<br/>❌ Not Implemented<br/>🔧 Team Member 2: CSV → Multiple Features]
+        DP[Document Processor<br/>❌ Not Implemented<br/>🔧 Team Member 2: PDF → Features]
+        LA[Lawyer Agent<br/>✅ Working with Mock MCPs<br/>🔧 Team Member 1: Real MCP Integration]
+    end
+    
+    subgraph "Real MCP Services Layer"
+        MC[HTTP MCP Client<br/>❌ Not Implemented<br/>🔧 Team Member 1: Replace Mock MCPs]
+        UT[Utah Search MCP<br/>❌ Not Implemented<br/>🔧 MCP Team: Port 8010]
+        EU[EU Search MCP<br/>❌ Not Implemented<br/>🔧 MCP Team: Port 8011] 
+        CA[California Search MCP<br/>❌ Not Implemented<br/>🔧 MCP Team: Port 8012]
+        FL[Florida Search MCP<br/>❌ Not Implemented<br/>🔧 MCP Team: Port 8013]
+        BR[Brazil Search MCP<br/>❌ Not Implemented<br/>🔧 MCP Team: Port 8014]
+    end
+    
+    subgraph "Data Layer"
+        PG[(PostgreSQL<br/>✅ Working)]
+        CH[(ChromaDB<br/>❌ Not Implemented<br/>🔧 MCP Team: Legal Document Storage)]
+    end
+    
+    subgraph "LLM Layer"
+        LLM[LLM Service<br/>✅ Basic Service Working<br/>🔧 Team Member 1: Enhanced Fallback Chain]
+        GM[Google Gemini<br/>✅ Working - Primary]
+        CL[Claude<br/>✅ Available - Fallback]
+        GP[GPT<br/>✅ Available - Fallback]
+    end
+    
+    subgraph "Monitoring Layer"
+        MT[Metrics Collector<br/>❌ Not Implemented<br/>🔧 Team Member 1]
+        PM[Performance Monitor<br/>❌ Not Implemented<br/>🔧 Team Member 1]
+        WV[Workflow Visualizer<br/>❌ Not Implemented<br/>🔧 Team Member 2]
+    end
+    
+    %% Main Flow: ALL inputs go through unified pipeline
+    UI --> API
+    API --> WF
+    WF --> RT
+    
+    %% Input routing (type detection only)
+    RT -->|Single Feature| JR
+    RT -->|User Query| JR
+    RT -->|CSV Batch| BP
+    RT -->|PDF Document| DP
+    
+    %% Preprocessing → JSON Refactorer
+    BP -->|Extracted Features| JR
+    DP -->|Extracted Features| JR
+    
+    %% Unified pipeline: JSON Refactorer → Lawyer Agent
+    JR --> LA
+    
+    %% Lawyer Agent calls MCPs as needed
+    LA --> MC
+    MC --> UT
+    MC --> EU
+    MC --> CA
+    MC --> FL
+    MC --> BR
+    
+    %% MCPs search ChromaDB
+    UT --> CH
+    EU --> CH
+    CA --> CH
+    FL --> CH
+    BR --> CH
+    
+    %% MCPs return search results to Lawyer Agent
+    UT --> LA
+    EU --> LA
+    CA --> LA
+    FL --> LA
+    BR --> LA
+    
+    %% Lawyer Agent uses LLM for synthesis
+    LA --> LLM
+    
+    LLM --> GM
+    LLM --> CL
+    LLM --> GP
+    
+    %% Monitoring integration
+    WF --> MT
+    MT --> PM
+    PM --> WV
+    WV --> UI
+    
+    %% Database connections
+    LA --> PG
+    WF --> PG
+    MT --> PG
+    
+    style JR fill:#e8f5e8
+    style LA fill:#e8f5e8
+    style MC fill:#fff3e0
+    style CH fill:#fff3e0
+    style MT fill:#fff3e0
+    style PM fill:#fff3e0
+    style WV fill:#e0f2f1
+    style BP fill:#e0f2f1
+    style DP fill:#e0f2f1
+    style RT fill:#f3e5f5
 ```
 
 ---
@@ -214,6 +316,7 @@ src/main.py             # Team Member 1 + Team Member 2 (different lines)
 
 ### Team Member 2
 - [ ] CSV batch upload working (50+ features)
+- [ ] PDF document upload and feature extraction
 - [ ] Real-time workflow visualization
 - [ ] Interactive performance dashboard  
 - [ ] Enhanced UI with charts and progress
@@ -224,18 +327,6 @@ src/main.py             # Team Member 1 + Team Member 2 (different lines)
 - [ ] Sub-3-second response times
 - [ ] Demo polished and rehearsed
 - [ ] All acceptance criteria met
-
----
-
-## 🏆 Competitive Advantages
-
-1. **Universal Input Processing** - Handles any input type automatically
-2. **Multi-Agent Architecture** - Sophisticated AI orchestration  
-3. **Dual-Mode Analysis** - Compliance + advisory in one system
-4. **Real MCP Integration** - Authentic legal analysis with real databases
-5. **Real-Time Visualization** - Live workflow tracking
-6. **Comprehensive Coverage** - 5 jurisdictions with specialized expertise
-7. **Production Ready** - Professional deployment and monitoring
 
 ---
 
