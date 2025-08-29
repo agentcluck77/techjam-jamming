@@ -4,24 +4,30 @@ import { useState, useEffect } from 'react'
 import { Card, CardHeader, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { getKnowledgeBase, updateKnowledgeBase } from '@/lib/api'
 
 export default function KnowledgeBase() {
   const [content, setContent] = useState('')
+  const [originalContent, setOriginalContent] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [lastSaved, setLastSaved] = useState<string | null>(null)
   const [hasChanges, setHasChanges] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
 
   useEffect(() => {
     const loadKnowledgeBase = async () => {
       try {
         const kb = await getKnowledgeBase()
         setContent(kb)
+        setOriginalContent(kb)
       } catch (error) {
         console.error('Failed to load knowledge base:', error)
         // Set default content if loading fails
         setContent(defaultKnowledgeBase)
+        setOriginalContent(defaultKnowledgeBase)
       } finally {
         setLoading(false)
       }
@@ -36,6 +42,7 @@ export default function KnowledgeBase() {
     setSaving(true)
     try {
       await updateKnowledgeBase(content)
+      setOriginalContent(content)
       setLastSaved(new Date().toLocaleTimeString())
       setHasChanges(false)
     } catch (error) {
@@ -43,6 +50,19 @@ export default function KnowledgeBase() {
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleRevert = () => {
+    setContent(originalContent)
+    setHasChanges(false)
+  }
+
+  const toggleHelp = () => {
+    setShowHelp(!showHelp)
+  }
+
+  const togglePreview = () => {
+    setShowPreview(!showPreview)
   }
 
   const handleContentChange = (value: string) => {
@@ -137,9 +157,19 @@ export default function KnowledgeBase() {
             >
               {saving ? 'Saving...' : 'Save'}
             </Button>
-            <Button variant="outline" disabled>Revert</Button>
-            <Button variant="outline" size="sm">Help</Button>
-            <Button variant="outline" size="sm">?</Button>
+            <Button 
+              variant="outline" 
+              onClick={handleRevert}
+              disabled={!hasChanges}
+            >
+              Revert
+            </Button>
+            <Button variant="outline" size="sm" onClick={toggleHelp}>
+              Help
+            </Button>
+            <Button variant="outline" size="sm" onClick={toggleHelp}>
+              ?
+            </Button>
           </div>
         </div>
 
@@ -244,14 +274,110 @@ export default function KnowledgeBase() {
               Your knowledge base is automatically included in every compliance analysis to provide 
               TikTok-specific context and improve accuracy.
             </p>
-            <Button variant="outline">
-              Preview Enhanced Prompt
+            <Button variant="outline" onClick={togglePreview}>
+              {showPreview ? 'Hide Preview' : 'Preview Enhanced Prompt'}
             </Button>
             <p className="text-sm text-gray-500 mt-2">
               See how this content improves AI analysis
             </p>
           </CardContent>
         </Card>
+
+        {/* Help Dialog */}
+        <Dialog open={showHelp} onOpenChange={setShowHelp}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>📖 Knowledge Base Help</DialogTitle>
+              <DialogDescription>
+                Learn how to customize your agent's expertise
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 text-sm">
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-2">What is the Knowledge Base?</h3>
+                <p className="text-gray-700">
+                  The knowledge base provides TikTok-specific context that enhances the lawyer agent's 
+                  analysis. This content is automatically included in every compliance assessment to 
+                  improve accuracy and relevance.
+                </p>
+              </div>
+              
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-2">Quick Add Sections</h3>
+                <ul className="list-disc list-inside text-gray-700 space-y-1">
+                  <li><strong>TikTok Terminology:</strong> Platform-specific terms and definitions</li>
+                  <li><strong>Legal Precedents:</strong> Key regulatory decisions and case law</li>
+                  <li><strong>Compliance Patterns:</strong> Common compliance requirements</li>
+                  <li><strong>Jurisdiction Guide:</strong> Region-specific regulatory focuses</li>
+                  <li><strong>Common Violations:</strong> Frequently seen compliance issues</li>
+                  <li><strong>Best Practices:</strong> Recommended compliance approaches</li>
+                </ul>
+              </div>
+              
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-2">Tips for Effective Content</h3>
+                <ul className="list-disc list-inside text-gray-700 space-y-1">
+                  <li>Use clear, specific terminology relevant to your use case</li>
+                  <li>Include jurisdiction-specific requirements and nuances</li>
+                  <li>Reference specific laws, regulations, and compliance standards</li>
+                  <li>Update regularly as regulations change</li>
+                  <li>Keep content concise but comprehensive</li>
+                </ul>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Preview Dialog */}
+        <Dialog open={showPreview} onOpenChange={setShowPreview}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>🔍 Enhanced Prompt Preview</DialogTitle>
+              <DialogDescription>
+                See how your knowledge base content enhances AI analysis
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="bg-blue-50 p-4 rounded-lg border">
+                <h3 className="font-semibold text-blue-900 mb-2">Base Prompt (without knowledge base)</h3>
+                <p className="text-blue-800 text-sm font-mono">
+                  Analyze this TikTok feature for regulatory compliance.<br/>
+                  Feature: Live Shopping Integration<br/>
+                  Description: Real-time commerce during live streams<br/>
+                  Provide compliance analysis focusing on major jurisdictions.
+                </p>
+              </div>
+              
+              <div className="bg-green-50 p-4 rounded-lg border">
+                <h3 className="font-semibold text-green-900 mb-2">Enhanced Prompt (with your knowledge base)</h3>
+                <div className="text-green-800 text-sm font-mono whitespace-pre-wrap">
+                  <p>Analyze this TikTok feature for regulatory compliance.</p>
+                  <p>Feature: Live Shopping Integration</p>
+                  <p>Description: Real-time commerce during live streams</p>
+                  <p>Provide compliance analysis focusing on major jurisdictions.</p>
+                  <br/>
+                  <p className="font-semibold">Additional Knowledge Base Context:</p>
+                  <div className="bg-green-100 p-2 rounded mt-2 max-h-40 overflow-y-auto">
+                    {content || "Your knowledge base content will appear here..."}
+                  </div>
+                  <br/>
+                  <p>Use this context to provide more accurate and TikTok-specific analysis.</p>
+                </div>
+              </div>
+              
+              <div className="bg-amber-50 p-4 rounded-lg border">
+                <h3 className="font-semibold text-amber-900 mb-2">📊 Enhancement Benefits</h3>
+                <ul className="text-amber-800 text-sm space-y-1">
+                  <li>• <strong>Domain Expertise:</strong> TikTok-specific terminology and context</li>
+                  <li>• <strong>Regulatory Awareness:</strong> Jurisdiction-specific requirements</li>
+                  <li>• <strong>Historical Context:</strong> Past compliance decisions and precedents</li>
+                  <li>• <strong>Best Practices:</strong> Proven compliance approaches</li>
+                  <li>• <strong>Risk Mitigation:</strong> Common pitfalls and violations to avoid</li>
+                </ul>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )

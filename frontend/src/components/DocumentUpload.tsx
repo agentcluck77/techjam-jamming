@@ -7,6 +7,7 @@ import { Progress } from '@/components/ui/progress'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
+import { Card, CardContent } from '@/components/ui/card'
 import { useDocumentStore } from '@/lib/stores'
 import { uploadDocument } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -24,12 +25,34 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
   const [inputMode, setInputMode] = useState<'file' | 'text' | 'url'>('file')
   const [textContent, setTextContent] = useState('')
   const [urlInput, setUrlInput] = useState('')
+  const [jurisdiction, setJurisdiction] = useState('')
+  const [showJurisdictionPrompt, setShowJurisdictionPrompt] = useState(false)
+  const [pendingFile, setPendingFile] = useState<File | null>(null)
   const { addDocument, addUploadProgress, updateUploadProgress, removeUploadProgress } = useDocumentStore()
+
+  // Common jurisdictions for quick selection
+  const commonJurisdictions = [
+    'Utah', 'California', 'Florida', 'Texas', 'New York',
+    'European Union', 'United Kingdom', 'Canada', 'Australia', 
+    'Brazil', 'India', 'Singapore', 'Japan', 'South Korea'
+  ]
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
     if (!file) return
 
+    // For legal documents, show jurisdiction prompt first
+    if (documentType === 'legal') {
+      setPendingFile(file)
+      setShowJurisdictionPrompt(true)
+      return
+    }
+
+    // For requirements documents, upload directly
+    await processUpload(file)
+  }, [documentType])
+
+  const processUpload = async (file: File, selectedJurisdiction?: string) => {
     setUploading(true)
     const fileId = `upload-${Date.now()}`
 
@@ -45,7 +68,10 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
       // Simulate upload progress
       updateUploadProgress(fileId, { progress: 20, status: 'uploading' })
 
-      const document = await uploadDocument(file, documentType)
+      // Include jurisdiction in metadata for legal documents
+      const metadata = selectedJurisdiction ? { jurisdiction: selectedJurisdiction } : undefined
+
+      const document = await uploadDocument(file, documentType, metadata)
 
       updateUploadProgress(fileId, { progress: 80, status: 'processing' })
 
@@ -76,57 +102,26 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
     } finally {
       setUploading(false)
     }
-  }, [documentType, onUploadComplete, addDocument, addUploadProgress, updateUploadProgress, removeUploadProgress])
+  }
 
   const handleTextUpload = async () => {
     if (!textContent.trim()) return
     
-    setUploading(true)
-    const fileId = `text-upload-${Date.now()}`
-    
-    try {
-      addUploadProgress({
-        fileId,
-        fileName: `Text Input - ${new Date().toLocaleTimeString()}`,
-        progress: 0,
-        status: 'uploading'
-      })
-
-      updateUploadProgress(fileId, { progress: 20, status: 'processing' })
-
-      // Create a text file blob and upload it
-      const textBlob = new File([textContent], `requirements-${Date.now()}.txt`, { type: 'text/plain' })
-      const document = await uploadDocument(textBlob, documentType)
-
-      updateUploadProgress(fileId, { progress: 80, status: 'processing' })
-      addDocument(document)
-      updateUploadProgress(fileId, { progress: 100, status: 'complete' })
-      
-      setTimeout(() => {
-        removeUploadProgress(fileId)
-      }, 2000)
-
-      // Show library prompt for requirements documents
-      if (documentType === 'requirements') {
-        setUploadedDocument({ id: document.id, name: document.name })
-        setShowLibraryPrompt(true)
-      }
-
-      onUploadComplete?.(document.id)
-      setTextContent('') // Clear text after upload
-    } catch (error) {
-      console.error('Text upload failed:', error)
-      updateUploadProgress(fileId, { 
-        progress: 0, 
-        status: 'error', 
-        error: error instanceof Error ? error.message : 'Upload failed'
-      })
-    } finally {
-      setUploading(false)
+    // For legal documents, show jurisdiction prompt first
+    if (documentType === 'legal') {
+      const textBlob = new File([textContent], `legal-document-${Date.now()}.txt`, { type: 'text/plain' })
+      setPendingFile(textBlob)
+      setShowJurisdictionPrompt(true)
+      return
     }
+
+    // For requirements documents, upload directly
+    const textBlob = new File([textContent], `requirements-${Date.now()}.txt`, { type: 'text/plain' })
+    await processUpload(textBlob)
+    setTextContent('') // Clear text after upload
   }
 
-  const handleUrlUpload = async () => {
+  const handleUrlUpload = async (selectedJurisdiction?: string) => {
     if (!urlInput.trim()) return
     
     setUploading(true)
@@ -140,16 +135,23 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
         status: 'uploading'
       })
 
-      updateUploadProgress(fileId, { progress: 20, status: 'fetching' })
+      updateUploadProgress(fileId, { progress: 20, status: 'processing' })
 
       // Call backend API to fetch and process URL
+      const requestBody: any = { 
+        url: urlInput, 
+        doc_type: documentType 
+      }
+
+      // Add jurisdiction to metadata for legal documents
+      if (selectedJurisdiction && documentType === 'legal') {
+        requestBody.metadata = { jurisdiction: selectedJurisdiction }
+      }
+
       const response = await fetch('/api/documents/upload-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          url: urlInput, 
-          doc_type: documentType 
-        })
+        body: JSON.stringify(requestBody)
       })
 
       if (!response.ok) {
@@ -184,6 +186,25 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
     } finally {
       setUploading(false)
     }
+  }
+
+  const handleJurisdictionConfirm = async () => {
+    if (!jurisdiction.trim()) return
+
+    setShowJurisdictionPrompt(false)
+    
+    if (inputMode === 'url') {
+      await handleUrlUpload(jurisdiction)
+    } else if (pendingFile) {
+      await processUpload(pendingFile, jurisdiction)
+      if (inputMode === 'text') {
+        setTextContent('') // Clear text after upload
+      }
+    }
+
+    // Reset state
+    setPendingFile(null)
+    setJurisdiction('')
   }
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -302,66 +323,16 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
               </p>
             </div>
           )}
-        </div>
-      ) : (
-        <div className={cn(
-          'border-2 border-gray-300 rounded-lg p-6',
-          uploading && 'opacity-50 pointer-events-none',
-          className
-        )}>
-          <div className="space-y-4">
-            <div className="text-center">
-              <div className="text-4xl mb-4">✏️</div>
-              <h3 className="text-xl font-medium text-gray-900">
-                Paste {documentType === 'requirements' ? 'Requirements' : 'Legal Document'} Text
-              </h3>
-              <p className="text-gray-600 mt-2">
-                {documentType === 'requirements' 
-                  ? 'Enter PRDs, Technical Specs, or User Stories directly'
-                  : 'Enter legal document text, acts, or regulations'
-                }
+
+          {documentType === 'legal' && (
+            <div className="bg-amber-50 p-4 rounded-md">
+              <p className="text-sm text-amber-700">
+                🏛️ You'll be asked to specify the jurisdiction for this legal document
+                to improve compliance analysis accuracy
               </p>
             </div>
-
-            <Textarea
-              placeholder={documentType === 'requirements' 
-                ? 'Paste your requirements here...\n\nExample:\n• Live shopping feature with real-time payments\n• Age verification for users under 18\n• Content moderation with 24-hour response time'
-                : 'Paste your legal document text here...'
-              }
-              value={textContent}
-              onChange={(e) => setTextContent(e.target.value)}
-              className="min-h-[200px] resize-none"
-              disabled={uploading}
-            />
-
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-500">
-                {textContent.length} characters • {textContent.split('\n').length} lines
-              </span>
-              <Button
-                onClick={handleTextUpload}
-                disabled={!textContent.trim() || uploading}
-              >
-                {uploading ? 'Processing...' : 'Process Text'}
-              </Button>
-            </div>
-
-            {uploading && (
-              <div className="space-y-2">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="text-sm text-gray-600 text-center">Processing text input...</p>
-              </div>
-            )}
-
-            {documentType === 'requirements' && (
-              <div className="bg-blue-50 p-4 rounded-md">
-                <p className="text-sm text-blue-700">
-                  ✨ We'll analyze your requirements and check them automatically
-                  against all legal regulations across jurisdictions
-                </p>
-              </div>
-            )}
-          </div>
+          )}
+        </div>
         </div>
       ) : inputMode === 'url' ? (
         <div className={cn(
@@ -394,7 +365,13 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
                   Supports: PDFs, HTML pages, government sites
                 </span>
                 <Button
-                  onClick={handleUrlUpload}
+                  onClick={() => {
+                    if (documentType === 'legal') {
+                      setShowJurisdictionPrompt(true)
+                    } else {
+                      handleUrlUpload()
+                    }
+                  }}
                   disabled={!urlInput.trim() || uploading}
                 >
                   {uploading ? 'Fetching...' : 'Import from URL'}
@@ -417,7 +394,6 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
           </div>
         </div>
       ) : (
-        // This is the original 'text' mode that was here before
         <div className={cn(
           'border-2 border-gray-300 rounded-lg p-6',
           uploading && 'opacity-50 pointer-events-none',
@@ -475,9 +451,83 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
                 </p>
               </div>
             )}
+
+            {documentType === 'legal' && (
+              <div className="bg-amber-50 p-4 rounded-md">
+                <p className="text-sm text-amber-700">
+                  🏛️ You'll be asked to specify the jurisdiction for this legal document
+                  to improve compliance analysis accuracy
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
+
+      {/* Jurisdiction Prompt Dialog */}
+      <Dialog open={showJurisdictionPrompt} onOpenChange={setShowJurisdictionPrompt}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>🏛️ Specify Jurisdiction</DialogTitle>
+            <DialogDescription>
+              Which jurisdiction does this legal document apply to? This helps improve compliance analysis accuracy.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">
+                Select from common jurisdictions:
+              </label>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                {commonJurisdictions.map((jur) => (
+                  <Button
+                    key={jur}
+                    variant={jurisdiction === jur ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setJurisdiction(jur)}
+                    className="justify-start"
+                  >
+                    {jur}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">
+                Or enter custom jurisdiction:
+              </label>
+              <Input
+                placeholder="e.g., Netherlands, Ontario (Canada), Cook County (Illinois), etc."
+                value={jurisdiction}
+                onChange={(e) => setJurisdiction(e.target.value)}
+                className="w-full"
+              />
+              <p className="text-xs text-gray-500">
+                Be as specific as needed (state, province, county, city)
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setShowJurisdictionPrompt(false)} className="w-full sm:w-auto">
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleJurisdictionConfirm} 
+              disabled={!jurisdiction.trim()}
+              className="w-full sm:w-auto"
+            >
+              Continue Upload
+            </Button>
+          </DialogFooter>
+          
+          <p className="text-xs text-gray-500 mt-2 text-center">
+            💡 Jurisdiction helps the AI provide more accurate compliance analysis
+          </p>
+        </DialogContent>
+      </Dialog>
 
       {/* Library Prompt Dialog */}
       <Dialog open={showLibraryPrompt} onOpenChange={setShowLibraryPrompt}>
