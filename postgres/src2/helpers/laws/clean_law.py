@@ -6,7 +6,8 @@ import sys
 # Adjust this path to point to the src/core folder containing llm_service.py
 sys.path.append("/techjam-jamming/src")
 
-from llm_service import SimpleLLMClient  
+from src.core.llm_service import SimpleLLMClient  
+
 
 async def clean_law_llm(pdf: str):
     llm = SimpleLLMClient()  
