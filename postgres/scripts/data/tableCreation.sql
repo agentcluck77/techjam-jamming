@@ -9,9 +9,9 @@ CREATE TABLE IF NOT EXISTS techjam.t_law_{{region}}_regulations (
     file_location VARCHAR(255),
     statute VARCHAR(255), 
     law_id VARCHAR(255),
+    regulations VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    regulations VARCHAR(255)
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create law definitions table for each location
@@ -19,9 +19,9 @@ CREATE TABLE IF NOT EXISTS techjam.t_law_{{region}}_definitions (
     file_location VARCHAR(255),
     region VARCHAR(255),
     statute VARCHAR(255),
+    definitions VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    definitions VARCHAR(255)
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create PRD table for all PRDs

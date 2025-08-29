@@ -4,7 +4,6 @@ from .common_queries import Regulations, CommonQueries
 import asyncpg
 from dotenv import load_dotenv
 
-# load variables from .env once
 load_dotenv()
 
 async def upsert_regulations(regulations: List[Regulations], region: str) -> None:
@@ -15,7 +14,6 @@ async def upsert_regulations(regulations: List[Regulations], region: str) -> Non
     if not regulations:
         return
 
-    # Use a pool instead of single connect/close
     pool = await asyncpg.create_pool(db_url)
     queries = CommonQueries(pool)
 
