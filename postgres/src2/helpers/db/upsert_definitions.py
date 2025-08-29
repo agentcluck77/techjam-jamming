@@ -1,22 +1,26 @@
-
-# get definition, make into Definition, put into this
-
+import os
+from typing import List
 from .common_queries import Definitions, CommonQueries
-
-# create or inject your db connection (example with asyncpg)
 import asyncpg
+from dotenv import load_dotenv
 
-async def upsert_definitions(definitions: list[Definitions], region: str) -> None:
+# load variables from .env once
+load_dotenv()
+
+async def upsert_definitions(definitions: List[Definitions], region: str) -> None:
+    
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        raise ValueError("DATABASE_URL is not set in .env")
+
     if not definitions:
         return
 
-    # Create a DB connection
-    db = await asyncpg.connect("postgresql://user:password@localhost:5432/mydb")
-
-    # Wrap it with CommonQueries
-    queries = CommonQueries(db)
+    # Use a pool instead of single connect/close
+    pool = await asyncpg.create_pool(db_url)
+    queries = CommonQueries(pool)
 
     for definition in definitions:
         await queries.upsert_definitions(definition, region)
 
-    await db.close()
+    await pool.close()

@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     # LLM API Keys
     anthropic_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
-    google_api_key: Optional[str] = "AIzaSyCPRpKXzjOTlb3SDyC8TbWbPTYGL9nGzwU"
+    google_api_key: Optional[str] = None
     
     # Database
     database_url: str = "postgresql://user:password@localhost:5432/geolegal"

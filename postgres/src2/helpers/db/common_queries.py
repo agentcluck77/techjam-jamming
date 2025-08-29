@@ -47,7 +47,7 @@ class CommonQueries:
             )
             ON CONFLICT (id) DO UPDATE SET
                 file_location = EXCLUDED.file_location,
-                statut
+                statute = EXCLUDED.statute,
                 region = EXCLUDED.region,
                 created_at = EXCLUDED.created_at,
                 updated_at = EXCLUDED.updated_at,
@@ -79,7 +79,7 @@ class CommonQueries:
             )
             ON CONFLICT (id) DO UPDATE SET
                 file_location = EXCLUDED.file_location,
-                statut
+                statute = EXCLUDED.statute,
                 region = EXCLUDED.region,
                 created_at = EXCLUDED.created_at,
                 updated_at = EXCLUDED.updated_at,
