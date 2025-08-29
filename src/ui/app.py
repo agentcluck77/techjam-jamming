@@ -8,8 +8,18 @@ import time
 from datetime import datetime
 from typing import Dict, Any
 
-from src.ui.utils.api_client import api_client
-from src.ui.components.workflow_viz import workflow_visualizer
+try:
+    from src.ui.utils.api_client import api_client
+    from src.ui.components.workflow_viz import workflow_visualizer
+    from src.ui.components.trd_workflows import TRDWorkflowsUI
+except ImportError:
+    # Fallback for direct streamlit run
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    from src.ui.utils.api_client import api_client
+    from src.ui.components.workflow_viz import workflow_visualizer
+    from src.ui.components.trd_workflows import TRDWorkflowsUI
 import requests
 
 # Configure Streamlit page
@@ -58,13 +68,15 @@ def main():
         st.header("🧭 Navigation")
         page = st.radio(
             "Select Page",
-            ["Single Analysis", "Workflow Visualization", "System Info", "Coming Soon"],
+            ["Single Analysis", "TRD Workflows", "Workflow Visualization", "System Info", "Coming Soon"],
             index=0
         )
     
     # Main content area
     if page == "Single Analysis":
         render_single_analysis()
+    elif page == "TRD Workflows":
+        render_trd_workflows()
     elif page == "Workflow Visualization":
         workflow_visualizer.render_workflow_page()
     elif page == "System Info":
@@ -470,6 +482,17 @@ def render_coming_soon():
     with col3:
         if st.button("📈 Dashboard", disabled=True):
             st.info("Feature coming soon!")
+
+
+def render_trd_workflows():
+    """Render TRD Workflows page with document upload and compliance analysis"""
+    
+    # Initialize TRD UI component
+    trd_ui = TRDWorkflowsUI()
+    
+    # Render the main TRD workflows interface
+    trd_ui.render_main_page()
+
 
 if __name__ == "__main__":
     main()

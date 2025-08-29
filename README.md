@@ -64,34 +64,74 @@ uv run streamlit run src/ui/app.py
 
 ## 👥 Team Assignments
 
-### 🔍 **MCP Team** (Lucas & JH)
-**Deliverable**: 5 Legal Search Services
+### 🔍 **Legal MCP Team** (Lucas & Vivian)
+**Deliverable**: Unified Legal Search Service
+
+### 📋 **Requirements MCP Team** (Tingli & JunHao) 
+**Deliverable**: Requirements Document Search Service
 
 #### Your Files
 ```
-src/mcp/                       # YOUR DOMAIN
-├── utah-search-mcp/           # Utah Social Media Act
-├── eu-search-mcp/             # EU DSA + GDPR  
-├── california-search-mcp/     # COPPA/CCPA
-├── florida-search-mcp/        # Minor Protection Act
-├── brazil-search-mcp/         # LGPD + Data Localization
-└── shared-chroma/             # ChromaDB setup
+src/legal-mcp/                 # YOUR DOMAIN
+├── main.py                    # FastAPI MCP service
+├── search_service.py          # Semantic search implementation
+├── chroma_client.py           # ChromaDB integration
+├── models.py                  # Request/response models
+└── data/                      # Legal documents (all jurisdictions)
+    ├── utah/                  # Utah Social Media Act
+    ├── eu/                    # EU DSA + GDPR
+    ├── california/            # COPPA/CCPA
+    ├── florida/               # Minor Protection Act
+    └── brazil/                # LGPD + Data Localization
 
-docker-compose.yml             # Add MCP services (lines 68-94)
+docker-compose.yml             # Add unified MCP service
 ```
 
 #### Required API
 ```bash
 POST /api/v1/search           # Semantic search endpoint
+# Request: {"query": "age verification", "jurisdictions": ["Utah", "EU"]}
+# Response: Top-ranked chunks with jurisdiction metadata
+
 GET /health                   # Health check
 
-# Ports: 8010-8014 (Utah, EU, CA, FL, Brazil)
+# Port: 8010 (single unified service)
+# Full specs: docs/MCP.md
+```
+
+#### Your Files
+```
+src/requirements-mcp/          # YOUR DOMAIN
+├── main.py                    # FastAPI MCP service
+├── search_service.py          # Document search implementation
+├── chroma_client.py           # ChromaDB integration
+├── models.py                  # Request/response models
+├── upload_service.py          # PDF/text document upload handler
+└── data/                      # Requirements documents
+    ├── prds/                  # Product Requirements Documents
+    ├── technical_specs/       # Technical specifications
+    ├── features/              # Feature specifications
+    └── user_stories/          # User story documents
+
+docker-compose.yml             # Add requirements MCP service
+```
+
+#### Required API
+```bash
+POST /api/v1/search           # Semantic search endpoint
+# Request: {"query": "live shopping payment flow", "doc_types": ["prd", "technical"]}
+# Response: Top-ranked requirement chunks with metadata
+
+POST /api/v1/upload           # Document upload endpoint (PDF/text)
+GET /health                   # Health check
+
+# Port: 8011 (requirements service)
 # Full specs: docs/MCP.md
 ```
 
 ---
 
-### ⚡ **Team Member 1** - MCP Integration
+### ⚡ **MCP Integration** - UNASSIGNED
 **What & Why**: Replace mock MCP services with real HTTP clients.
 
 **Deliverable**: Real MCP client + system monitoring
@@ -109,15 +149,15 @@ src/main.py                             # Add health/metrics endpoints
 ```
 
 #### Tasks
-- Replace `src/core/agents/mock_mcps.py` with real HTTP calls
+- Replace `src/core/agents/mock_mcps.py` with real HTTP calls to both MCPs (legal + requirements)
 - Add performance monitoring and metrics collection
 - Enable flag: `ENABLE_REAL_MCPS=true`
 
-#### Search for: `# TODO: Team Member 1`
+#### Search for: `# TODO: MCP Integration`
 
 ---
 
-### ⚡ **Team Member 2** - UI, Batch Processing & Document Processing
+### ⚡ **UI Enhancement & Batch Processing** - UNASSIGNED
 **What & Why**: Transform basic UI into a production-ready platform. Currently users can only analyze one feature at a time.
 
 **Business Impact**:
@@ -153,7 +193,7 @@ src/core/workflow.py                        # Already updated for unified workfl
 - Enhanced UI with charts and progress tracking
 - Enable flags: `ENABLE_BATCH_PROCESSING=true`, `ENABLE_WORKFLOW_VIZ=true`, `ENABLE_PDF_PROCESSING=true`
 
-#### Search for: `# TODO: Team Member 2`
+#### Search for: `# TODO: UI Enhancement`
 
 ---
 
@@ -162,8 +202,8 @@ src/core/workflow.py                        # Already updated for unified workfl
 ```mermaid
 graph TB
     subgraph "Enhanced Frontend Layer"
-        UI[Enhanced Streamlit UI<br/>✅ Basic UI Working<br/>🔧 Team Member 2: Dashboards + Charts]
-        API[FastAPI REST API<br/>✅ Core API Working<br/>🔧 Team Member 2: + Batch Endpoints]
+        UI[Enhanced Streamlit UI<br/>✅ Basic UI Working<br/>🔧 UNASSIGNED: Dashboards + Charts]
+        API[FastAPI REST API<br/>✅ Core API Working<br/>🔧 UNASSIGNED: + Batch Endpoints]
     end
     
     subgraph "Core Services"
@@ -173,36 +213,34 @@ graph TB
     
     subgraph "Unified Processing Pipeline"
         JR[JSON Refactorer<br/>✅ Working for Features<br/>🔧 Needs: Handle ALL input types]
-        BP[Batch Processor<br/>❌ Not Implemented<br/>🔧 Team Member 2: CSV → Multiple Features]
-        DP[Document Processor<br/>❌ Not Implemented<br/>🔧 Team Member 2: PDF → Features]
-        LA[Lawyer Agent<br/>✅ Enhanced with LLM Parsing<br/>🔧 Team Member 1: Real MCP Integration]
+        BP[Batch Processor<br/>❌ Not Implemented<br/>🔧 UNASSIGNED: CSV → Multiple Features]
+        DP[Document Processor<br/>❌ Not Implemented<br/>🔧 UNASSIGNED: PDF → Features]
+        LA[Lawyer Agent<br/>✅ Enhanced with LLM Parsing<br/>🔧 UNASSIGNED: Real MCP Integration]
     end
     
-    subgraph "Real MCP Services Layer"
-        MC[HTTP MCP Client<br/>❌ Not Implemented<br/>🔧 Team Member 1: Replace Mock MCPs]
-        UT[Utah Search MCP<br/>❌ Not Implemented<br/>🔧 MCP Team: Port 8010]
-        EU[EU Search MCP<br/>❌ Not Implemented<br/>🔧 MCP Team: Port 8011] 
-        CA[California Search MCP<br/>❌ Not Implemented<br/>🔧 MCP Team: Port 8012]
-        FL[Florida Search MCP<br/>❌ Not Implemented<br/>🔧 MCP Team: Port 8013]
-        BR[Brazil Search MCP<br/>❌ Not Implemented<br/>🔧 MCP Team: Port 8014]
+    subgraph "MCP Services Layer"
+        MC[HTTP MCP Client<br/>❌ Not Implemented<br/>🔧 UNASSIGNED: Replace Mock MCPs]
+        LM[Legal Search MCP<br/>❌ Not Implemented<br/>🔧 Legal MCP Team: Port 8010<br/>🔧 Unified service for all jurisdictions]
+        RM[Requirements Search MCP<br/>❌ Not Implemented<br/>🔧 Requirements MCP Team: Port 8011<br/>🔧 PRDs, specs, user stories]
     end
     
     subgraph "Data Layer"
         PG[(PostgreSQL<br/>✅ Working)]
-        CH[(ChromaDB<br/>❌ Not Implemented<br/>🔧 MCP Team: Legal Document Storage)]
+        CH1[(Legal ChromaDB<br/>❌ Not Implemented<br/>🔧 Legal MCP Team: All Legal Documents)]
+        CH2[(Requirements ChromaDB<br/>❌ Not Implemented<br/>🔧 Requirements MCP Team: All Requirement Docs)]
     end
     
     subgraph "LLM Layer"
-        LLM[LLM Service<br/>✅ Basic Service Working<br/>🔧 Team Member 1: Enhanced Fallback Chain]
+        LLM[LLM Service<br/>✅ Basic Service Working<br/>🔧 UNASSIGNED: Enhanced Fallback Chain]
         GM[Google Gemini<br/>✅ Working - Primary]
         CL[Claude<br/>✅ Available - Fallback]
         GP[GPT<br/>✅ Available - Fallback]
     end
     
     subgraph "Monitoring Layer"
-        MT[Metrics Collector<br/>❌ Not Implemented<br/>🔧 Team Member 1]
-        PM[Performance Monitor<br/>❌ Not Implemented<br/>🔧 Team Member 1]
-        WV[Workflow Visualizer<br/>❌ Not Implemented<br/>🔧 Team Member 2]
+        MT[Metrics Collector<br/>❌ Not Implemented<br/>🔧 UNASSIGNED]
+        PM[Performance Monitor<br/>❌ Not Implemented<br/>🔧 UNASSIGNED]
+        WV[Workflow Visualizer<br/>❌ Not Implemented<br/>🔧 UNASSIGNED]
     end
     
     %% Main Flow: ALL inputs go through unified pipeline
@@ -223,27 +261,18 @@ graph TB
     %% Unified pipeline: JSON Refactorer → Lawyer Agent
     JR --> LA
     
-    %% Lawyer Agent calls MCPs as needed
+    %% Lawyer Agent calls both MCPs via client
     LA --> MC
-    MC --> UT
-    MC --> EU
-    MC --> CA
-    MC --> FL
-    MC --> BR
+    MC --> LM
+    MC --> RM
     
-    %% MCPs search ChromaDB
-    UT --> CH
-    EU --> CH
-    CA --> CH
-    FL --> CH
-    BR --> CH
+    %% MCPs search their respective ChromaDBs
+    LM --> CH1
+    RM --> CH2
     
     %% MCPs return search results to Lawyer Agent
-    UT --> LA
-    EU --> LA
-    CA --> LA
-    FL --> LA
-    BR --> LA
+    LM --> LA
+    RM --> LA
     
     %% Lawyer Agent uses LLM for synthesis
     LA --> LLM
@@ -356,8 +385,8 @@ docs/                    # Documentation (complete)
 
 ### SHARED FILES (Coordinate!)
 ```
-docker-compose.yml       # MCP Team + Team Member 1
-src/main.py             # Team Member 1 + Team Member 2 (different lines)
+docker-compose.yml       # Legal MCP Team + Requirements MCP Team + UNASSIGNED (MCP Integration)
+src/main.py             # UNASSIGNED (MCP Integration + UI Enhancement) (different lines)
 .env                    # All teams (different flags)
 ```
 
@@ -371,19 +400,27 @@ src/main.py             # Team Member 1 + Team Member 2 (different lines)
 
 ## 📋 Success Criteria
 
-### MCP Team
-- [ ] 5 MCP services responding on ports 8010-8014
-- [ ] ChromaDB integration working
-- [ ] Search API returns legal document chunks
+### Legal MCP Team  
+- [ ] Unified legal MCP service responding on port 8010
+- [ ] ChromaDB integration working with all jurisdictions
+- [ ] Search API returns ranked legal document chunks with jurisdiction metadata
+- [ ] Jurisdiction filtering via search parameters
 - [ ] Health checks passing
 
-### Team Member 1  
-- [ ] Mock MCP calls replaced with real HTTP
+### Requirements MCP Team
+- [ ] Requirements MCP service responding on port 8011
+- [ ] ChromaDB integration working with all document types (PRDs, specs, user stories)
+- [ ] Search API returns ranked requirement chunks with document metadata
+- [ ] Document upload functionality (PDF/text) in Streamlit UI
+- [ ] Health checks passing
+
+### MCP Integration - UNASSIGNED
+- [ ] Mock MCP calls replaced with real HTTP (both legal + requirements MCPs)
 - [ ] Performance metrics collection working
 - [x] **Enhanced LLM parsing - eliminates hardcoded string matching**
 - [x] All original features still functional
 
-### Team Member 2
+### UI Enhancement & Batch Processing - UNASSIGNED
 - [ ] CSV batch upload working (50+ features)
 - [ ] PDF document upload and feature extraction
 - [ ] Real-time workflow visualization

@@ -11,8 +11,8 @@ from .models import (
     WorkflowState, FeatureAnalysisRequest, UserQueryRequest, 
     FeatureAnalysisResponse, UserQueryResponse, MissingInfoResponse
 )
-from .agents.json_refactorer import JSONRefactorer
 from .agents.lawyer_agent import LawyerAgent
+# NOTE: JSON Refactorer deprecated - functionality moved to Knowledge Base
 
 class EnhancedWorkflowOrchestrator:
     """
@@ -22,9 +22,9 @@ class EnhancedWorkflowOrchestrator:
     
     def __init__(self, mcp_client=None, cache_manager=None):
         # Dependency injection for team member enhancements
-        self.json_refactorer = JSONRefactorer()
         self.lawyer_agent = LawyerAgent(mcp_client=mcp_client)
-        self.cache = cache_manager  # Team Member 1 will implement
+        self.cache = cache_manager  # MCP Integration will implement
+        # NOTE: JSON Refactorer removed - direct processing via lawyer agent + knowledge base
         
         # Build unified workflow - ALL inputs go through same pipeline
         self.unified_workflow = self._build_unified_workflow()
@@ -37,23 +37,21 @@ class EnhancedWorkflowOrchestrator:
         
         workflow = StateGraph(WorkflowState)
         
-        # Add nodes for unified pipeline
+        # Add nodes for unified pipeline (JSON Refactorer removed)
         workflow.add_node("input_preprocessing", self._input_preprocessing_node)  # Handle batch/PDF extraction
-        workflow.add_node("json_refactorer", self._json_refactor_node)            # ALL inputs processed here
-        workflow.add_node("lawyer_agent", self._lawyer_agent_node)                # Handles both analysis + advisory
+        workflow.add_node("lawyer_agent", self._lawyer_agent_node)                # Direct processing with Knowledge Base
         
-        # Sequential execution for all input types
+        # Simplified execution - direct to lawyer agent (Knowledge Base handles terminology)
         workflow.add_edge(START, "input_preprocessing")
-        workflow.add_edge("input_preprocessing", "json_refactorer") 
-        workflow.add_edge("json_refactorer", "lawyer_agent")
+        workflow.add_edge("input_preprocessing", "lawyer_agent")
         workflow.add_edge("lawyer_agent", END)
         
         return workflow.compile()
     
     async def process_request(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Unified request processing - ALL inputs go through same workflow:
-        Input → Preprocessing → JSON Refactorer → Lawyer Agent → Output
+        Unified request processing - Simplified workflow (JSON Refactorer deprecated):
+        Input → Preprocessing → Lawyer Agent (with Knowledge Base) → Output
         """
         
         # Detect input type for preprocessing decisions
@@ -125,13 +123,13 @@ class EnhancedWorkflowOrchestrator:
         
         try:
             if state.input_type == "csv_batch":
-                # TODO: Team Member 2 - Extract multiple features from CSV
+                # TODO: UI Enhancement - Extract multiple features from CSV
                 # For now, pass through as-is
                 pass
             elif state.input_type == "pdf_document":
-                # TODO: Team Member 2 - Extract features from PDF content
+                # TODO: UI Enhancement - Extract features from PDF content
                 # For now, return not implemented error
-                state.error_state = "PDF processing not yet implemented by Team Member 2"
+                state.error_state = "PDF processing not yet implemented by UI Enhancement team"
             else:
                 # Single features and queries pass through unchanged
                 pass
@@ -141,27 +139,8 @@ class EnhancedWorkflowOrchestrator:
         
         return state
     
-    async def _json_refactor_node(self, state: WorkflowState) -> WorkflowState:
-        """
-        JSON Refactorer workflow node - processes ALL input types
-        Converts any input into enriched context for legal analysis
-        """
-        
-        state.execution_path.append("json_refactorer")
-        
-        if state.error_state:
-            return state
-        
-        try:
-            # Process input through enhanced JSON Refactorer (handles all input types)
-            enriched_context = await self.json_refactorer.process_any_input(state.input_data, state.input_type)
-            state.enriched_context = enriched_context.model_dump() if hasattr(enriched_context, 'model_dump') else enriched_context
-            
-        except Exception as e:
-            state.error_state = f"JSON Refactorer failed: {str(e)}"
-        
-        return state
-    
+    # NOTE: _json_refactor_node removed - functionality moved to Knowledge Base
+    # Direct processing now handled by lawyer agent with terminology expansion
     async def _lawyer_agent_node(self, state: WorkflowState) -> WorkflowState:
         """
         Unified lawyer agent workflow node - handles both analysis and advisory
@@ -178,18 +157,14 @@ class EnhancedWorkflowOrchestrator:
                 state.final_decision = self._create_error_response(state.error_state, state)
             return state
         
-        if not state.enriched_context:
-            state.error_state = "No enriched context available for legal analysis"
-            return state
-        
         try:
-            # Lawyer Agent determines output format based on input type
+            # Lawyer Agent processes input directly (Knowledge Base handles terminology)
             if state.input_type == "user_query":
                 # Return advisory response for queries
-                final_decision = await self.lawyer_agent.handle_enriched_query(state.enriched_context)
+                final_decision = await self.lawyer_agent.handle_query_direct(state.input_data)
             else:
-                # Return compliance analysis for features/documents/batch
-                final_decision = await self.lawyer_agent.analyze(state.enriched_context)
+                # Return compliance analysis for features/documents/batch  
+                final_decision = await self.lawyer_agent.analyze_direct(state.input_data, state.input_type)
             
             state.final_decision = final_decision
             
@@ -258,12 +233,12 @@ class EnhancedWorkflowOrchestrator:
         
         return missing_response.model_dump()
 
-# TODO: Team Member 1 - Enhanced workflow with parallel execution
+# TODO: MCP Integration - Enhanced workflow with parallel execution
 # class EnhancedWorkflowOrchestrator(WorkflowOrchestrator):
 #     """Enhanced orchestrator with parallel MCP execution and caching"""
 #     
 #     def _build_workflow(self) -> StateGraph:
-#         # TODO: Team Member 1 - Implement parallel MCP execution
+#         # TODO: MCP Integration - Implement parallel MCP execution
 #         # 1. Add parallel_mcp_analysis node
 #         # 2. Execute all 5 MCPs concurrently
 #         # 3. Add timeout handling and retries
@@ -284,7 +259,7 @@ class EnhancedWorkflowOrchestrator:
 #         return workflow.compile()
 #     
 #     async def _parallel_mcp_node(self, state: WorkflowState) -> WorkflowState:
-#         # TODO: Team Member 1 - Implement true parallel MCP execution
+#         # TODO: MCP Integration - Implement true parallel MCP execution
 #         # 1. Use asyncio.gather for concurrent HTTP calls
 #         # 2. Handle partial failures gracefully
 #         # 3. Add performance monitoring
@@ -296,7 +271,7 @@ from ..config import settings
 # Initialize MCP client based on settings
 mcp_client = None
 if settings.enable_real_mcps:
-    # TODO: Team Member 1 - Initialize real MCP client when implemented
+    # TODO: MCP Integration - Initialize real MCP client when implemented
     # from .agents.real_mcp_client import RealMCPClient
     # mcp_client = RealMCPClient(MCP_SERVICES)
     pass

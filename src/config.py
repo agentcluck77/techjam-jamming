@@ -32,13 +32,18 @@ class Settings(BaseSettings):
     enable_real_mcps: bool = False
     enable_batch_processing: bool = False
     enable_workflow_viz: bool = False
+    enable_pdf_processing: bool = False
     
-    # MCP Service URLs - Team Member 1 configures
+    # MCP Service URLs - Original architecture
     utah_mcp_url: str = "http://localhost:8010"
     eu_mcp_url: str = "http://localhost:8011"
     california_mcp_url: str = "http://localhost:8012"
     florida_mcp_url: str = "http://localhost:8013"
     brazil_mcp_url: str = "http://localhost:8014"
+    
+    # TRD Architecture - 2-MCP system
+    legal_mcp_url: str = "http://localhost:8010"
+    requirements_mcp_url: str = "http://localhost:8011"
 
     class Config:
         env_file = ".env"

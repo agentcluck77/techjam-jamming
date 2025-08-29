@@ -65,25 +65,56 @@ services:
       - ./logs:/app/logs
     restart: unless-stopped
 
-  # TODO: Team Member 1 - Add MCP services when ready
-  # utah-mcp:
-  #   image: tiktok-mcps/utah:latest
+  # TODO: Legal MCP Team - Add legal MCP service when ready
+  # legal-mcp:
+  #   build:
+  #     context: ./src/legal-mcp
+  #     dockerfile: Dockerfile
   #   ports:
   #     - "8010:8000"
   #   environment:
   #     - LOG_LEVEL=INFO
-  #     - CHROMA_HOST=chroma
+  #     - CHROMA_HOST=legal-chroma
   #     - CHROMA_PORT=8000
   #   depends_on:
-  #     - chroma
+  #     - legal-chroma
+  #   volumes:
+  #     - ./src/legal-mcp/data:/app/data
 
-  # TODO: MCP Team - ChromaDB for vector storage
-  # chroma:
+  # TODO: Requirements MCP Team - Add requirements MCP service when ready  
+  # requirements-mcp:
+  #   build:
+  #     context: ./src/requirements-mcp
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "8011:8000"
+  #   environment:
+  #     - LOG_LEVEL=INFO
+  #     - CHROMA_HOST=requirements-chroma
+  #     - CHROMA_PORT=8000
+  #   depends_on:
+  #     - requirements-chroma
+  #   volumes:
+  #     - ./src/requirements-mcp/data:/app/data
+
+  # TODO: Legal MCP Team - ChromaDB for legal documents
+  # legal-chroma:
   #   image: chromadb/chroma:latest
   #   ports:
   #     - "8001:8000"
   #   volumes:
-  #     - chroma_data:/chroma/chroma
+  #     - legal_chroma_data:/chroma/chroma
+  #   environment:
+  #     - CHROMA_SERVER_HOST=0.0.0.0
+  #     - CHROMA_SERVER_HTTP_PORT=8000
+
+  # TODO: Requirements MCP Team - ChromaDB for requirements documents
+  # requirements-chroma:
+  #   image: chromadb/chroma:latest
+  #   ports:
+  #     - "8002:8000"
+  #   volumes:
+  #     - requirements_chroma_data:/chroma/chroma
   #   environment:
   #     - CHROMA_SERVER_HOST=0.0.0.0
   #     - CHROMA_SERVER_HTTP_PORT=8000
@@ -91,7 +122,8 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  # chroma_data:  # Uncomment when MCP team is ready
+  # legal_chroma_data:  # Uncomment when Legal MCP team is ready
+  # requirements_chroma_data:  # Uncomment when Requirements MCP team is ready
 
 networks:
   default:

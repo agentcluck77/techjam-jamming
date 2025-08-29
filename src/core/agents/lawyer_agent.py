@@ -1251,16 +1251,16 @@ Return ONLY: true or false"""
         # Default fallback
         return False
 
-# TODO: Team Member 1 - Enhanced version with caching and performance optimization
+# TODO: MCP Integration - Enhanced version with caching and performance optimization
 # class EnhancedLawyerAgent(LawyerAgent):
 #     """Enhanced version with caching and advanced decision logic"""
 #     
 #     def __init__(self, mcp_client, cache_manager=None):
 #         super().__init__(mcp_client)
-#         self.cache = cache_manager  # Team Member 1 implements Redis caching
+#         self.cache = cache_manager  # MCP Integration implements Redis caching
 #     
 #     async def analyze(self, enriched_context: Dict[str, Any]) -> FeatureAnalysisResponse:
-#         # TODO: Team Member 1 - Add caching layer
+#         # TODO: MCP Integration - Add caching layer
 #         # 1. Check cache for similar feature analysis
 #         # 2. Use cached results if available and fresh
 #         # 3. Cache new results with appropriate TTL
@@ -1268,7 +1268,7 @@ Return ONLY: true or false"""
 #         pass
 #     
 #     def _synthesize_decision(self, ...):
-#         # TODO: Team Member 1 - Enhanced decision logic
+#         # TODO: MCP Integration - Enhanced decision logic
 #         # 1. Conflict resolution between jurisdictions
 #         # 2. Weighted confidence scoring
 #         # 3. Advanced risk calculation algorithms

@@ -19,37 +19,21 @@ class MockMCPClient:
         # Load mock responses
         self.mock_data_path = Path(__file__).parent.parent.parent.parent / "data" / "mock_responses.json"
         self.mock_responses = self._load_mock_responses()
-        # Define available MCP tools with their capabilities
+        # Define available MCP tools with their capabilities - Updated for 2-MCP architecture
         self.available_tools = [
             {
-                "name": "utah_legal_analysis",
-                "description": "Utah Social Media Regulation Act compliance analysis including age verification, curfew restrictions, and parental controls",
-                "jurisdiction": "Utah",
-                "specialties": ["minor protection", "age verification", "parental controls", "social media restrictions"]
+                "name": "legal_search",
+                "description": "Legal document search across all jurisdictions (Utah, EU, California, Florida, Brazil) with ranking and jurisdiction metadata",
+                "mcp_type": "legal",
+                "port": 8010,
+                "specialties": ["regulatory search", "compliance analysis", "legal document retrieval", "jurisdiction-specific queries"]
             },
             {
-                "name": "eu_legal_analysis", 
-                "description": "European Union Digital Services Act and GDPR compliance analysis including content moderation, transparency reporting, and data protection",
-                "jurisdiction": "EU",
-                "specialties": ["content moderation", "transparency reporting", "data protection", "user rights"]
-            },
-            {
-                "name": "california_legal_analysis",
-                "description": "California state law compliance analysis including SB976, CCPA, COPPA, and Age-Appropriate Design Code",
-                "jurisdiction": "California", 
-                "specialties": ["SB976", "CCPA", "COPPA", "age-appropriate design", "child protection"]
-            },
-            {
-                "name": "florida_legal_analysis",
-                "description": "Florida Online Protections for Minors Act compliance analysis including parental controls and content filtering",
-                "jurisdiction": "Florida",
-                "specialties": ["minor protection", "parental controls", "content filtering", "account restrictions"]
-            },
-            {
-                "name": "brazil_legal_analysis",
-                "description": "Brazil LGPD and data localization requirements analysis including data storage and cross-border transfers",
-                "jurisdiction": "Brazil", 
-                "specialties": ["data localization", "LGPD compliance", "data storage", "cross-border transfers"]
+                "name": "requirements_search", 
+                "description": "Requirements document search for PRDs, technical specs, features, and user stories with relevance ranking",
+                "mcp_type": "requirements",
+                "port": 8011,
+                "specialties": ["product requirements", "technical specifications", "feature analysis", "document search"]
             }
         ]
     
@@ -114,7 +98,7 @@ class MockMCPClient:
     async def call_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """
         MCP protocol: Call specific tool by name with arguments
-        Maps tool calls to jurisdiction-specific analysis
+        Updated for 2-MCP architecture (legal + requirements)
         """
         
         # Find the tool by name
@@ -122,47 +106,34 @@ class MockMCPClient:
         if not tool:
             return {"error": f"Tool {name} not found"}
         
-        # Extract jurisdiction from tool info
-        jurisdiction = tool["jurisdiction"].lower()
-        
         # Get feature context and analysis focus
         feature_context = arguments.get("feature_context", {})
         analysis_focus = arguments.get("analysis_focus", "general compliance analysis")
         
-        # Perform jurisdiction-specific analysis
         try:
-            analysis = await self.analyze_feature(jurisdiction, feature_context)
-            
-            # Convert JurisdictionAnalysis to dict format for MCP protocol
-            result = {
-                "jurisdiction": analysis.jurisdiction,
-                "applicable_regulations": analysis.applicable_regulations,
-                "compliance_required": analysis.compliance_required,
-                "risk_level": analysis.risk_level,
-                "requirements": analysis.requirements,
-                "implementation_steps": analysis.implementation_steps,
-                "confidence": analysis.confidence,
-                "reasoning": f"Tool: {name} | Focus: {analysis_focus} | {analysis.reasoning}",
-                "analysis_time": analysis.analysis_time,
-                "tool_name": name,
-                "analysis_focus": analysis_focus
-            }
-            
-            return result
+            if tool["mcp_type"] == "legal":
+                # Legal MCP: Search across all jurisdictions, return aggregated analysis
+                return await self._call_legal_mcp(feature_context, analysis_focus)
+            elif tool["mcp_type"] == "requirements":
+                # Requirements MCP: Search for relevant product requirements
+                return await self._call_requirements_mcp(feature_context, analysis_focus)
+            else:
+                return {"error": f"Unknown MCP type: {tool['mcp_type']}"}
             
         except Exception as e:
             return {
-                "error": f"Analysis failed for {name}: {str(e)}",
-                "jurisdiction": tool["jurisdiction"],
-                "tool_name": name
+                "error": f"MCP call failed for {name}: {str(e)}",
+                "tool_name": name,
+                "mcp_type": tool.get("mcp_type", "unknown")
             }
     
     async def get_available_jurisdictions(self) -> List[str]:
         """
-        Get list of available jurisdictions from tool definitions
+        Get list of available jurisdictions - hardcoded for legal MCP
         Used by Lawyer Agent for dynamic jurisdiction discovery
         """
-        return [tool["jurisdiction"] for tool in self.available_tools]
+        # Legal MCP supports all these jurisdictions
+        return ["Utah", "EU", "California", "Florida", "Brazil"]
     
     async def analyze_parallel(self, feature_context: Dict[str, Any]) -> List[JurisdictionAnalysis]:
         """
@@ -171,8 +142,8 @@ class MockMCPClient:
         Phase 1A: Sequential execution of mock responses
         """
         
-        # Get available jurisdictions dynamically from tool definitions
-        available_jurisdictions = [tool["jurisdiction"].lower() for tool in self.available_tools]
+        # Get available jurisdictions for legal analysis
+        available_jurisdictions = [jurisdiction.lower() for jurisdiction in await self.get_available_jurisdictions()]
         results = []
         
         # Phase 1A: Sequential for simplicity
@@ -250,8 +221,8 @@ class MockMCPClient:
         
         # Mock search responses based on query content
         mock_search_results = []
-        # Get available jurisdictions dynamically
-        available_jurisdictions = [tool["jurisdiction"].lower() for tool in self.available_tools]
+        # Get available jurisdictions for search
+        available_jurisdictions = [jurisdiction.lower() for jurisdiction in await self.get_available_jurisdictions()]
         
         for jurisdiction in available_jurisdictions:
             # Generate contextual search results based on query
@@ -328,8 +299,138 @@ class MockMCPClient:
             "total_results": 1,
             "search_time": 0.1
         }
+    
+    async def _call_legal_mcp(self, feature_context: Dict[str, Any], analysis_focus: str) -> Dict[str, Any]:
+        """
+        Mock call to legal MCP - searches across all jurisdictions
+        Returns aggregated legal analysis with jurisdiction metadata
+        """
+        
+        # Simulate legal MCP search across all jurisdictions
+        all_jurisdictions = await self.get_available_jurisdictions()
+        legal_analyses = []
+        
+        for jurisdiction in all_jurisdictions:
+            try:
+                analysis = await self.analyze_feature(jurisdiction.lower(), feature_context)
+                legal_analyses.append({
+                    "jurisdiction": analysis.jurisdiction,
+                    "applicable_regulations": analysis.applicable_regulations,
+                    "compliance_required": analysis.compliance_required,
+                    "risk_level": analysis.risk_level,
+                    "requirements": analysis.requirements,
+                    "implementation_steps": analysis.implementation_steps,
+                    "confidence": analysis.confidence,
+                    "reasoning": analysis.reasoning,
+                    "analysis_time": analysis.analysis_time
+                })
+            except Exception as e:
+                print(f"Mock legal analysis failed for {jurisdiction}: {e}")
+                continue
+        
+        # Return aggregated legal search results
+        return {
+            "mcp_type": "legal",
+            "tool_name": "legal_search",
+            "analysis_focus": analysis_focus,
+            "jurisdictions_analyzed": [analysis["jurisdiction"] for analysis in legal_analyses],
+            "legal_analyses": legal_analyses,
+            "search_time": 0.3,
+            "total_jurisdictions": len(legal_analyses)
+        }
+    
+    async def _call_requirements_mcp(self, feature_context: Dict[str, Any], analysis_focus: str) -> Dict[str, Any]:
+        """
+        Mock call to requirements MCP - searches for relevant PRDs and specs
+        Returns product requirement analysis and related documents
+        """
+        
+        # Simulate requirements MCP search
+        feature_name = feature_context.get("original_feature", "Unknown Feature")
+        feature_description = feature_context.get("expanded_description", "")
+        
+        # Mock requirement search results based on feature context
+        mock_requirements = self._generate_mock_requirements(feature_name, feature_description)
+        
+        return {
+            "mcp_type": "requirements", 
+            "tool_name": "requirements_search",
+            "analysis_focus": analysis_focus,
+            "feature_context": {
+                "name": feature_name,
+                "description": feature_description[:200] + "..." if len(feature_description) > 200 else feature_description
+            },
+            "requirements_found": mock_requirements,
+            "search_time": 0.2,
+            "total_documents": len(mock_requirements)
+        }
+    
+    def _generate_mock_requirements(self, feature_name: str, feature_description: str) -> List[Dict[str, Any]]:
+        """Generate mock requirements documents based on feature context"""
+        
+        # Mock PRD content based on feature name and description
+        mock_docs = []
+        
+        # Simulate different types of requirements documents
+        if any(term in feature_name.lower() or term in feature_description.lower() 
+               for term in ["shopping", "commerce", "payment", "buy", "purchase"]):
+            mock_docs.append({
+                "document_type": "PRD",
+                "title": "E-commerce Integration Requirements",
+                "content": "Feature must include payment processing, age verification for purchases, and compliance with regional e-commerce regulations.",
+                "relevance_score": 0.9,
+                "metadata": {
+                    "version": "2.1",
+                    "team": "Commerce Platform",
+                    "last_updated": "2025-01-15"
+                }
+            })
+        
+        if any(term in feature_name.lower() or term in feature_description.lower() 
+               for term in ["live", "stream", "real-time", "broadcast"]):
+            mock_docs.append({
+                "document_type": "Technical Spec", 
+                "title": "Real-time Streaming Architecture",
+                "content": "Live features require content moderation systems, latency optimization, and scalable infrastructure to handle concurrent users.",
+                "relevance_score": 0.85,
+                "metadata": {
+                    "version": "1.3",
+                    "team": "Live Platform",
+                    "last_updated": "2025-01-10"
+                }
+            })
+        
+        if any(term in feature_name.lower() or term in feature_description.lower() 
+               for term in ["user", "profile", "account", "social"]):
+            mock_docs.append({
+                "document_type": "Feature Spec",
+                "title": "User Account Management Requirements",
+                "content": "User features must implement privacy controls, parental oversight capabilities, and age-appropriate design patterns.",
+                "relevance_score": 0.75,
+                "metadata": {
+                    "version": "3.0",
+                    "team": "User Experience", 
+                    "last_updated": "2025-01-20"
+                }
+            })
+        
+        # Default generic requirement if no specific matches
+        if not mock_docs:
+            mock_docs.append({
+                "document_type": "General Requirements",
+                "title": "Platform Feature Guidelines", 
+                "content": "All new features must comply with platform safety standards, accessibility requirements, and regional regulatory compliance.",
+                "relevance_score": 0.6,
+                "metadata": {
+                    "version": "1.0",
+                    "team": "Platform Standards",
+                    "last_updated": "2025-01-01"
+                }
+            })
+        
+        return mock_docs
 
-# TODO: Team Member 1 - Replace with real HTTP client
+# TODO: MCP Integration - Replace with real HTTP client
 # class RealMCPClient:
 #     """Real MCP client for HTTP communication with jurisdiction services"""
 #     
