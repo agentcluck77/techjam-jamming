@@ -1,9 +1,15 @@
 import google.genai as genai
+import os
 import json
 import re
+from dotenv import load_dotenv
+# law 
 
+load_dotenv()
+
+api_key = os.getenv("GOOGLE_API_KEY")
 # --- Step 0: Initialize client ---
-client = genai.Client(api_key= "AIzaSyB4exWhg-i3FCElgUdmAy3BsUdlzHAeY1M")
+client = genai.Client(api_key)
 
 # --- Helper: Clean model output of markdown ---
 def clean_json_output(text: str) -> str:
