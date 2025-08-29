@@ -31,7 +31,7 @@ export default function RootLayout({
       >
         <div className="min-h-screen">
           <Navigation />
-          <main className="ml-64 min-h-screen">
+          <main className="ml-64 mr-80 min-h-screen">
             {children}
           </main>
           <HITLSidebar />

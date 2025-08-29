@@ -5,6 +5,8 @@ import { useDropzone } from 'react-dropzone'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 import { useDocumentStore } from '@/lib/stores'
 import { uploadDocument } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -19,6 +21,9 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
   const [uploading, setUploading] = useState(false)
   const [showLibraryPrompt, setShowLibraryPrompt] = useState(false)
   const [uploadedDocument, setUploadedDocument] = useState<{ id: string; name: string } | null>(null)
+  const [inputMode, setInputMode] = useState<'file' | 'text' | 'url'>('file')
+  const [textContent, setTextContent] = useState('')
+  const [urlInput, setUrlInput] = useState('')
   const { addDocument, addUploadProgress, updateUploadProgress, removeUploadProgress } = useDocumentStore()
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -73,6 +78,114 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
     }
   }, [documentType, onUploadComplete, addDocument, addUploadProgress, updateUploadProgress, removeUploadProgress])
 
+  const handleTextUpload = async () => {
+    if (!textContent.trim()) return
+    
+    setUploading(true)
+    const fileId = `text-upload-${Date.now()}`
+    
+    try {
+      addUploadProgress({
+        fileId,
+        fileName: `Text Input - ${new Date().toLocaleTimeString()}`,
+        progress: 0,
+        status: 'uploading'
+      })
+
+      updateUploadProgress(fileId, { progress: 20, status: 'processing' })
+
+      // Create a text file blob and upload it
+      const textBlob = new File([textContent], `requirements-${Date.now()}.txt`, { type: 'text/plain' })
+      const document = await uploadDocument(textBlob, documentType)
+
+      updateUploadProgress(fileId, { progress: 80, status: 'processing' })
+      addDocument(document)
+      updateUploadProgress(fileId, { progress: 100, status: 'complete' })
+      
+      setTimeout(() => {
+        removeUploadProgress(fileId)
+      }, 2000)
+
+      // Show library prompt for requirements documents
+      if (documentType === 'requirements') {
+        setUploadedDocument({ id: document.id, name: document.name })
+        setShowLibraryPrompt(true)
+      }
+
+      onUploadComplete?.(document.id)
+      setTextContent('') // Clear text after upload
+    } catch (error) {
+      console.error('Text upload failed:', error)
+      updateUploadProgress(fileId, { 
+        progress: 0, 
+        status: 'error', 
+        error: error instanceof Error ? error.message : 'Upload failed'
+      })
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const handleUrlUpload = async () => {
+    if (!urlInput.trim()) return
+    
+    setUploading(true)
+    const fileId = `url-upload-${Date.now()}`
+    
+    try {
+      addUploadProgress({
+        fileId,
+        fileName: `URL: ${urlInput}`,
+        progress: 0,
+        status: 'uploading'
+      })
+
+      updateUploadProgress(fileId, { progress: 20, status: 'fetching' })
+
+      // Call backend API to fetch and process URL
+      const response = await fetch('/api/documents/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          url: urlInput, 
+          doc_type: documentType 
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch from URL')
+      }
+
+      const document = await response.json()
+      
+      updateUploadProgress(fileId, { progress: 80, status: 'processing' })
+      addDocument(document)
+      updateUploadProgress(fileId, { progress: 100, status: 'complete' })
+      
+      setTimeout(() => {
+        removeUploadProgress(fileId)
+      }, 2000)
+
+      // Show library prompt for requirements documents
+      if (documentType === 'requirements') {
+        setUploadedDocument({ id: document.id, name: document.name })
+        setShowLibraryPrompt(true)
+      }
+
+      onUploadComplete?.(document.id)
+      setUrlInput('') // Clear URL after upload
+    } catch (error) {
+      console.error('URL upload failed:', error)
+      updateUploadProgress(fileId, { 
+        progress: 0, 
+        status: 'error', 
+        error: error instanceof Error ? error.message : 'URL fetch failed'
+      })
+    } finally {
+      setUploading(false)
+    }
+  }
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
@@ -100,15 +213,51 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
 
   return (
     <>
-      <div
-        {...getRootProps()}
-        className={cn(
-          'border-2 border-dashed border-gray-300 rounded-lg p-12 text-center cursor-pointer transition-colors',
-          isDragActive ? 'border-blue-500 bg-blue-50' : 'hover:border-gray-400',
-          uploading && 'pointer-events-none opacity-50',
-          className
-        )}
-      >
+      {/* Mode Toggle */}
+      <div className="flex items-center justify-center mb-4">
+        <div className="flex bg-gray-100 rounded-lg p-1">
+          <button
+            onClick={() => setInputMode('file')}
+            className={cn(
+              'px-4 py-2 rounded-md text-sm font-medium transition-colors',
+              inputMode === 'file' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+            )}
+          >
+            📄 Upload File
+          </button>
+          <button
+            onClick={() => setInputMode('text')}
+            className={cn(
+              'px-4 py-2 rounded-md text-sm font-medium transition-colors',
+              inputMode === 'text' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+            )}
+          >
+            ✏️ Text Input
+          </button>
+          {documentType === 'legal' && (
+            <button
+              onClick={() => setInputMode('url')}
+              className={cn(
+                'px-4 py-2 rounded-md text-sm font-medium transition-colors',
+                inputMode === 'url' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              )}
+            >
+              🔗 From URL
+            </button>
+          )}
+        </div>
+      </div>
+
+      {inputMode === 'file' ? (
+        <div
+          {...getRootProps()}
+          className={cn(
+            'border-2 border-dashed border-gray-300 rounded-lg p-12 text-center cursor-pointer transition-colors',
+            isDragActive ? 'border-blue-500 bg-blue-50' : 'hover:border-gray-400',
+            uploading && 'pointer-events-none opacity-50',
+            className
+          )}
+        >
         <input {...getInputProps()} />
         
         <div className="space-y-4">
@@ -154,7 +303,181 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
             </div>
           )}
         </div>
-      </div>
+      ) : (
+        <div className={cn(
+          'border-2 border-gray-300 rounded-lg p-6',
+          uploading && 'opacity-50 pointer-events-none',
+          className
+        )}>
+          <div className="space-y-4">
+            <div className="text-center">
+              <div className="text-4xl mb-4">✏️</div>
+              <h3 className="text-xl font-medium text-gray-900">
+                Paste {documentType === 'requirements' ? 'Requirements' : 'Legal Document'} Text
+              </h3>
+              <p className="text-gray-600 mt-2">
+                {documentType === 'requirements' 
+                  ? 'Enter PRDs, Technical Specs, or User Stories directly'
+                  : 'Enter legal document text, acts, or regulations'
+                }
+              </p>
+            </div>
+
+            <Textarea
+              placeholder={documentType === 'requirements' 
+                ? 'Paste your requirements here...\n\nExample:\n• Live shopping feature with real-time payments\n• Age verification for users under 18\n• Content moderation with 24-hour response time'
+                : 'Paste your legal document text here...'
+              }
+              value={textContent}
+              onChange={(e) => setTextContent(e.target.value)}
+              className="min-h-[200px] resize-none"
+              disabled={uploading}
+            />
+
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-500">
+                {textContent.length} characters • {textContent.split('\n').length} lines
+              </span>
+              <Button
+                onClick={handleTextUpload}
+                disabled={!textContent.trim() || uploading}
+              >
+                {uploading ? 'Processing...' : 'Process Text'}
+              </Button>
+            </div>
+
+            {uploading && (
+              <div className="space-y-2">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="text-sm text-gray-600 text-center">Processing text input...</p>
+              </div>
+            )}
+
+            {documentType === 'requirements' && (
+              <div className="bg-blue-50 p-4 rounded-md">
+                <p className="text-sm text-blue-700">
+                  ✨ We'll analyze your requirements and check them automatically
+                  against all legal regulations across jurisdictions
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : inputMode === 'url' ? (
+        <div className={cn(
+          'border-2 border-gray-300 rounded-lg p-6',
+          uploading && 'opacity-50 pointer-events-none',
+          className
+        )}>
+          <div className="space-y-4">
+            <div className="text-center">
+              <div className="text-4xl mb-4">🔗</div>
+              <h3 className="text-xl font-medium text-gray-900">
+                Import Legal Document from URL
+              </h3>
+              <p className="text-gray-600 mt-2">
+                Enter a URL to legal acts, regulations, or official documents
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <Input
+                placeholder="https://example.com/legal-document.pdf or https://laws.gov/act-name"
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                disabled={uploading}
+                className="text-sm"
+              />
+
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-500">
+                  Supports: PDFs, HTML pages, government sites
+                </span>
+                <Button
+                  onClick={handleUrlUpload}
+                  disabled={!urlInput.trim() || uploading}
+                >
+                  {uploading ? 'Fetching...' : 'Import from URL'}
+                </Button>
+              </div>
+            </div>
+
+            {uploading && (
+              <div className="space-y-2">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="text-sm text-gray-600 text-center">Fetching document from URL...</p>
+              </div>
+            )}
+
+            <div className="bg-green-50 p-4 rounded-md">
+              <p className="text-sm text-green-700">
+                💡 Examples: Government legislation sites, PDF acts, official legal documents
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        // This is the original 'text' mode that was here before
+        <div className={cn(
+          'border-2 border-gray-300 rounded-lg p-6',
+          uploading && 'opacity-50 pointer-events-none',
+          className
+        )}>
+          <div className="space-y-4">
+            <div className="text-center">
+              <div className="text-4xl mb-4">✏️</div>
+              <h3 className="text-xl font-medium text-gray-900">
+                Paste {documentType === 'requirements' ? 'Requirements' : 'Legal Document'} Text
+              </h3>
+              <p className="text-gray-600 mt-2">
+                {documentType === 'requirements' 
+                  ? 'Enter PRDs, Technical Specs, or User Stories directly'
+                  : 'Enter legal document text, acts, or regulations'
+                }
+              </p>
+            </div>
+
+            <Textarea
+              placeholder={documentType === 'requirements' 
+                ? 'Paste your requirements here...\n\nExample:\n• Live shopping feature with real-time payments\n• Age verification for users under 18\n• Content moderation with 24-hour response time'
+                : 'Paste your legal document text here...'
+              }
+              value={textContent}
+              onChange={(e) => setTextContent(e.target.value)}
+              className="min-h-[200px] resize-none"
+              disabled={uploading}
+            />
+
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-500">
+                {textContent.length} characters • {textContent.split('\n').length} lines
+              </span>
+              <Button
+                onClick={handleTextUpload}
+                disabled={!textContent.trim() || uploading}
+              >
+                {uploading ? 'Processing...' : 'Process Text'}
+              </Button>
+            </div>
+
+            {uploading && (
+              <div className="space-y-2">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="text-sm text-gray-600 text-center">Processing text input...</p>
+              </div>
+            )}
+
+            {documentType === 'requirements' && (
+              <div className="bg-blue-50 p-4 rounded-md">
+                <p className="text-sm text-blue-700">
+                  ✨ We'll analyze your requirements and check them automatically
+                  against all legal regulations across jurisdictions
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Library Prompt Dialog */}
       <Dialog open={showLibraryPrompt} onOpenChange={setShowLibraryPrompt}>
