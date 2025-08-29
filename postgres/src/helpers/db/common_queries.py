@@ -1,7 +1,3 @@
-# get info by law id 
-# upsert pdf
-
-
 import logging
 from typing import List, Optional, Any, Dict, Union
 from datetime import datetime, timezone
