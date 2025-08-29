@@ -1,0 +1,65 @@
+{
+  "tiktok_terminology": {
+    "ASL": "American Sign Language",
+    "jellybean": "feature component",
+    "Creator Fund": "monetization program",
+    "LIVE": "live streaming",
+    "FYP": "For You Page",
+    "algo": "algorithm",
+    "duet": "collaborative video feature",
+    "stitch": "video response feature",
+    "sound sync": "audio synchronization feature",
+    "green screen": "background replacement feature",
+    "beauty filter": "appearance enhancement filter",
+    "AR effects": "augmented reality effects",
+    "branded content": "sponsored content feature",
+    "hashtag challenge": "trending challenge campaign",
+    "creator marketplace": "brand partnership platform",
+    "TikTok Shop": "e-commerce integration",
+    "pulse": "analytics dashboard",
+    "spark ads": "advertising platform",
+    "brand takeover": "full-screen advertisement",
+    "top view": "premium ad placement"
+  },
+  "geographic_mappings": {
+    "US": ["United States", "America", "USA"],
+    "EU": ["Europe", "European Union", "GDPR region"],
+    "Utah": ["UT", "Utah state"],
+    "California": ["CA", "Cali", "West Coast"],
+    "Florida": ["FL", "Southeast"],
+    "Brazil": ["BR", "South America", "LATAM"]
+  },
+  "feature_categories": {
+    "content_creation": ["video editing", "effects", "filters", "camera"],
+    "social_features": ["messaging", "following", "sharing", "duets"],
+    "commerce": ["shopping", "payments", "marketplace", "monetization"],
+    "discovery": ["recommendation", "search", "trending", "fyp"],
+    "safety": ["moderation", "reporting", "parental controls", "verification"],
+    "advertising": ["ads", "branded content", "promotion", "marketing"]
+  },
+  "risk_indicators": {
+    "high_risk": [
+      "data collection",
+      "minors",
+      "children",
+      "age verification",
+      "payment processing",
+      "personal information",
+      "geolocation",
+      "biometric data"
+    ],
+    "medium_risk": [
+      "user generated content",
+      "social interaction",
+      "algorithmic recommendation",
+      "content moderation",
+      "advertising"
+    ],
+    "low_risk": [
+      "video playback",
+      "basic UI",
+      "static content",
+      "informational features"
+    ]
+  }
+}

@@ -1,0 +1,1 @@
+i dont know how to write this properly but each time you make a table for a different location you run python postgres\scripts\tableSetup.py table_name, eg python postgres\scripts\tableSetup.py Utah
