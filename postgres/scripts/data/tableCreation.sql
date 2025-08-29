@@ -1,6 +1,13 @@
 -- Create law regulations table for each location
-CREATE TABLE IF NOT EXISTS techjam.t_law_{{table_name}}_regulations (
-    pdf_path VARCHAR(255),
+
+-- file location: 
+-- statute: "EU_DSA" || "UTAH_SB976"
+-- law_id: "Article_28" || "Section 27000"
+-- regulations: "Very large online platforms that are likely to be accessed by minors shall..."}
+
+CREATE TABLE IF NOT EXISTS techjam.t_law_{{region}}_regulations (
+    file_location VARCHAR(255),
+    statute VARCHAR(255), 
     law_id VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -8,9 +15,10 @@ CREATE TABLE IF NOT EXISTS techjam.t_law_{{table_name}}_regulations (
 );
 
 -- Create law definitions table for each location
-CREATE TABLE IF NOT EXISTS techjam.t_law_{{table_name}}_definitions (
-    pdf_path VARCHAR(255),
-    law_id VARCHAR(255),
+CREATE TABLE IF NOT EXISTS techjam.t_law_{{region}}_definitions (
+    file_location VARCHAR(255),
+    statute VARCHAR(255),
+    region VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     definitions VARCHAR(255)
@@ -18,7 +26,7 @@ CREATE TABLE IF NOT EXISTS techjam.t_law_{{table_name}}_definitions (
 
 -- Create PRD table for all PRDs
 CREATE TABLE IF NOT EXISTS techjam.t_prd (
-    pdf_path VARCHAR(255),
+    file_location VARCHAR(255),
     feature VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

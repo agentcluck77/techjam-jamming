@@ -2,6 +2,7 @@ import os
 import sys
 import psycopg2
 from dotenv import load_dotenv
+# law 
 
 load_dotenv()
 
@@ -11,10 +12,10 @@ DB_NAME = os.getenv("DB_NAME", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
 DB_PORT = int(os.getenv("DB_PORT", 5432))
 
-# function to replace {{table_name}} 
-def render_sql_template(sql_text: str, table_name: str) -> str:
-    """Replace placeholder {{table_name}} in SQL template."""
-    return sql_text.replace("{{table_name}}", table_name)
+# function to replace {{region}} 
+def render_sql_template(sql_text: str, region: str) -> str:
+    """Replace placeholder {{region}} in SQL template."""
+    return sql_text.replace("{{region}}", region)
 
 # function to check if table already exists
 def table_exists(cursor, schema: str, table: str) -> bool:
@@ -28,7 +29,7 @@ def table_exists(cursor, schema: str, table: str) -> bool:
     return cursor.fetchone()[0]
 
 
-def setup_table(table_name: str):
+def setup_table(region: str):
     print("Starting table setup...")
 
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -37,8 +38,8 @@ def setup_table(table_name: str):
     with open(TABLE_PATH, "r", encoding="utf-8") as f:
         table_creation_sql = f.read()
 
-    # Render SQL with table name replacement
-    table_creation_sql = render_sql_template(table_creation_sql, table_name.lower())
+    # Render SQL with region replacement
+    table_creation_sql = render_sql_template(table_creation_sql, region.lower())
 
     conn = None
     try:
@@ -52,14 +53,14 @@ def setup_table(table_name: str):
         conn.autocommit = False
         cursor = conn.cursor()
 
-        if table_exists(cursor, "techjam", f"t_law_{table_name}_regulations".lower()):
-            print(f"Tables for {table_name} already exist. Skipping creation.")
+        if table_exists(cursor, "techjam", f"t_law_{region}_regulations".lower()):
+            print(f"Tables for {region} already exist. Skipping creation.")
         else:
             print("Creating tables...")
             cursor.execute(table_creation_sql)
             print("Executed SQL successfully!")
             conn.commit()
-            print(f"{table_name} setup completed successfully!")
+            print(f"{region} setup completed successfully!")
 
     except Exception as e:
         if conn:
