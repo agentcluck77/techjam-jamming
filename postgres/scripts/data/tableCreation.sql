@@ -17,8 +17,8 @@ CREATE TABLE IF NOT EXISTS techjam.t_law_{{region}}_regulations (
 -- Create law definitions table for each location
 CREATE TABLE IF NOT EXISTS techjam.t_law_{{region}}_definitions (
     file_location VARCHAR(255),
-    statute VARCHAR(255),
     region VARCHAR(255),
+    statute VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     definitions VARCHAR(255)
