@@ -2,11 +2,15 @@
 
 import asyncio
 import sys
+import os
 
-# Adjust this path to point to the src/core folder containing llm_service.py
-sys.path.append("/techjam-jamming/src")
+# Add the "src" folder to sys.path
+sys.path.append(os.path.abspath(
+    r"C:/Users/xinti/OneDrive/Desktop/techjam-jamming\src"
+))
 
-from src.core.llm_service import SimpleLLMClient  
+from src.core.llm_service import SimpleLLMClient
+ 
 
 
 async def clean_law_llm(pdf: str):

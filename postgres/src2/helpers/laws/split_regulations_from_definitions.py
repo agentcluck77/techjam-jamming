@@ -1,1 +1,0 @@
-#llm to separate out regulations and definitions
