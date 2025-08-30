@@ -16,7 +16,7 @@ from .core.models import (
     HealthStatus, APIError
 )
 from .core.workflow import workflow_orchestrator
-from .core.llm_service import llm_client, GEMINI_MODELS
+from .core.llm_service import llm_client, GEMINI_MODELS, CLAUDE_MODELS
 
 # Configure logging
 logging.basicConfig(
@@ -271,23 +271,25 @@ async def get_metrics():
 # Model selection endpoints
 @app.get("/api/v1/models/available")
 async def get_available_models():
-    """Get available Gemini models"""
+    """Get available models (Gemini and Claude)"""
     return {
         "gemini_models": GEMINI_MODELS,
-        "current_model": llm_client.preferred_model or "gemini-1.5-flash"
+        "claude_models": CLAUDE_MODELS,
+        "current_model": llm_client.preferred_model or "claude-sonnet-4-20250514"
     }
 
 @app.post("/api/v1/models/select")
 async def select_model(model_data: dict):
-    """Set preferred Gemini model"""
+    """Set preferred model (Gemini or Claude)"""
     model_id = model_data.get("model_id")
-    if model_id in GEMINI_MODELS:
+    if model_id in GEMINI_MODELS or model_id in CLAUDE_MODELS:
         llm_client.set_preferred_model(model_id)
         return {"status": "success", "model": model_id}
     else:
+        available_models = list(GEMINI_MODELS.keys()) + list(CLAUDE_MODELS.keys())
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid model ID. Available models: {list(GEMINI_MODELS.keys())}"
+            detail=f"Invalid model ID. Available models: {available_models}"
         )
 
 # Development helper endpoints
@@ -306,14 +308,38 @@ if settings.environment == "development":
         from .services.mcp_client import MCPSearchClient
         mcp_client = MCPSearchClient()
         return await mcp_client.health_check_all_services()
+    
+    @app.get("/api/v1/dev/test-model")
+    async def test_current_model():
+        """Test endpoint to verify which model is actually being used"""
+        try:
+            response = await llm_client.complete(
+                "Hello! Please respond with just your model name/version.",
+                max_tokens=50,
+                temperature=0.1
+            )
+            return {
+                "status": "success",
+                "llm_response_model": response.get("model", "unknown"),
+                "llm_response_content": response.get("content", "no content"),
+                "configured_model": llm_client.preferred_model,
+                "tokens_used": response.get("tokens_used", 0)
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": str(e),
+                "configured_model": llm_client.preferred_model
+            }
 
 # Include API endpoints for frontend integration
-from .api.endpoints import hitl, document_management, results, legal_chat
+from .api.endpoints import hitl, document_management, results, legal_chat, chat_management
 
 app.include_router(hitl.router)
 app.include_router(document_management.router)
 app.include_router(results.router)
 app.include_router(legal_chat.router)
+app.include_router(chat_management.router)
 
 # Error handlers
 @app.exception_handler(HTTPException)

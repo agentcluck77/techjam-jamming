@@ -15,6 +15,8 @@ import asyncio
 
 from ...core.agents.lawyer_trd_agent import LawyerTRDAgent
 from ...core.llm_service import llm_client
+from ...core.models import ChatMessage as PersistentChatMessage
+from ...services.chat_storage import chat_storage
 from .hitl import WorkflowStartRequest, active_workflows, send_hitl_prompt, wait_for_hitl_response, pending_hitl_prompts
 
 router = APIRouter(prefix="/api", tags=["legal-chat"])
@@ -26,10 +28,12 @@ lawyer_agent = LawyerTRDAgent()
 # Agent state management
 agent_sessions = {}
 agent_locks = {}  # Prevent concurrent agent loops
+chat_request_locks = {}  # Prevent duplicate requests per chat
 
 class ChatRequest(BaseModel):
     message: str
     context: Optional[str] = None
+    chat_id: Optional[str] = None  # For continuing existing chat sessions
 
 class AgentAction(BaseModel):
     action_type: str  # "mcp_call", "analysis", "response", "hitl_prompt"
@@ -139,6 +143,120 @@ Be thorough and specific in your analysis."""
         }
     )
 
+@router.post("/legal-chat/session", response_model=ChatResponse)
+async def legal_compliance_chat_session(request: ChatRequest, background_tasks: BackgroundTasks):
+    """
+    Persistent chat session endpoint - maintains conversation context across messages
+    """
+    
+    logger.info(f"💬 PERSISTENT CHAT - Message: '{request.message[:100]}...'")
+    
+    if not request.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    
+    try:
+        # Get or create chat session
+        if request.chat_id:
+            # Continue existing chat
+            chat_session = await chat_storage.get_chat(request.chat_id)
+            if not chat_session:
+                raise HTTPException(status_code=404, detail="Chat session not found")
+            chat_id = request.chat_id
+        else:
+            # Create new chat session
+            chat_session = await chat_storage.create_chat(
+                title=None,  # Will auto-generate from message
+                initial_message=request.message
+            )
+            chat_id = chat_session.id
+        
+        # Use per-chat lock to prevent duplicate requests
+        if chat_id not in chat_request_locks:
+            chat_request_locks[chat_id] = asyncio.Lock()
+        
+        # Acquire lock for this chat to prevent concurrent processing
+        async with chat_request_locks[chat_id]:
+            # Check if there's already an active agent for this chat
+            active_sessions = [sid for sid, state in agent_sessions.items() 
+                              if sid.startswith(f"chat-{chat_id}-") and state.status == "active"]
+            
+            if active_sessions:
+                logger.warning(f"🔄 Active agent already exists for chat {chat_id}: {active_sessions[0]}")
+                return ChatResponse(
+                    response="⏳ Agent already processing your request...",
+                    timestamp=datetime.now().isoformat(),
+                    workflow_started=True,
+                    workflow_id=active_sessions[0],
+                    reasoning=[],
+                    reasoning_duration=0.0,
+                    is_reasoning_complete=False
+                )
+            
+            # Add user message to persistent storage
+            user_message = PersistentChatMessage(
+                type="user",
+                content=request.message,
+                timestamp=datetime.now()
+            )
+            
+            # Only add if we didn't already add it during creation
+            if request.chat_id:
+                await chat_storage.add_message(chat_session.id, user_message)
+            
+            # Generate unique agent session linked to chat
+            session_id = f"chat-{chat_session.id}-{uuid.uuid4().hex[:8]}"
+            
+            # Build conversation context from chat history
+            conversation_history = []
+            for msg in chat_session.messages:
+                conversation_history.append({
+                    "role": msg.type if msg.type != "assistant" else "assistant",
+                    "content": msg.content
+                })
+            
+            # Initialize agent state with conversation history
+            start_time = datetime.now()
+            agent_sessions[session_id] = AgentState(
+                session_id=session_id,
+                conversation_history=conversation_history,
+                current_task=f"legal_analysis: {request.message[:50]}...",
+                start_time=start_time,
+                status="active"
+            )
+            agent_locks[session_id] = asyncio.Lock()
+            
+            # Start autonomous agent loop
+            background_tasks.add_task(_run_persistent_chat_agent, session_id, chat_session.id, request.message, request.context)
+            
+            # Add agent activation as reasoning step
+            agent_sessions[session_id].reasoning_steps.append(ReasoningStep(
+                type="agent_startup",
+                content=f"🤖 **Legal Agent Activated** (Session: {chat_session.id})\n\nContinuing analysis with {len(conversation_history)} previous messages in context.",
+                duration=0.1,
+                timestamp=datetime.now().isoformat()
+            ))
+            
+            return ChatResponse(
+                response="⏳ Analyzing your request...",
+                timestamp=datetime.now().isoformat(),
+                workflow_started=True,
+                workflow_id=session_id,
+                reasoning=[agent_sessions[session_id].reasoning_steps[0]],
+                reasoning_duration=0.1,
+                is_reasoning_complete=False
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Persistent chat error: {str(e)}")
+        import traceback
+        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to start persistent chat session. Please try again."
+        )
+
 @router.post("/legal-chat", response_model=ChatResponse)
 async def legal_compliance_chat(request: ChatRequest, background_tasks: BackgroundTasks):
     """
@@ -195,6 +313,56 @@ async def legal_compliance_chat(request: ChatRequest, background_tasks: Backgrou
             detail="Failed to start autonomous agent. Please try again."
         )
 
+async def _run_persistent_chat_agent(session_id: str, chat_id: str, user_message: str, context: Optional[str]):
+    """
+    Persistent chat agent - saves assistant responses to database
+    """
+    
+    # Run the standard autonomous agent
+    await _run_autonomous_agent(session_id, user_message, context)
+    
+    # After agent completes, save assistant response to database
+    try:
+        if session_id in active_workflows and active_workflows[session_id].get("status") == "complete":
+            final_response = active_workflows[session_id].get("final_response", "")
+            
+            if final_response and final_response.strip():
+                # Get reasoning steps and MCP executions for storage
+                agent_state = agent_sessions.get(session_id)
+                reasoning_steps = []
+                mcp_executions = []
+                
+                if agent_state:
+                    reasoning_steps = [
+                        {
+                            "type": step.type,
+                            "content": step.content,
+                            "duration": step.duration,
+                            "timestamp": step.timestamp
+                        } for step in agent_state.reasoning_steps
+                    ]
+                    
+                    # Convert MCP executions from agent state
+                    if hasattr(agent_state, 'mcp_executions_for_chat'):
+                        mcp_executions = agent_state.mcp_executions_for_chat
+                
+                # Create assistant message
+                assistant_message = PersistentChatMessage(
+                    type="assistant",
+                    content=final_response,
+                    timestamp=datetime.now(),
+                    model_used=llm_client.preferred_model,
+                    reasoning_steps=reasoning_steps,
+                    mcp_executions=mcp_executions
+                )
+                
+                # Save to database
+                await chat_storage.add_message(chat_id, assistant_message)
+                logger.info(f"💾 Saved assistant response to chat {chat_id}")
+                
+    except Exception as e:
+        logger.error(f"❌ Failed to save assistant response to database: {e}")
+
 async def _run_autonomous_agent(session_id: str, user_message: str, context: Optional[str]):
     """
     Autonomous LLM agent loop - like Claude Code/Cursor agent orchestration.
@@ -237,7 +405,7 @@ async def _run_autonomous_agent(session_id: str, user_message: str, context: Opt
                 elif next_action.action_type == "analysis":
                     await _agent_perform_analysis(session_id, next_action)
                     # Yield control aggressively to allow frontend polling between reasoning steps  
-                    await asyncio.sleep(1.5)  # Increased delay for stability
+                    # Agent controls its own pacing - no artificial delays
                 elif next_action.action_type == "response":
                     await _agent_send_final_response(session_id, next_action)
                     break  # End the loop after final response
@@ -246,8 +414,8 @@ async def _run_autonomous_agent(session_id: str, user_message: str, context: Opt
                     agent_state.status = "waiting_hitl"
                     break  # Wait for user input
                 
-                # Yield control between iterations for real-time frontend updates
-                await asyncio.sleep(1.5)  # Increased delay for stability
+                # Brief yield for frontend responsiveness (agent still controls overall pacing)
+                await asyncio.sleep(0.05)  # 50ms yield for UI updates
             
             if iteration >= max_iterations:
                 logger.warning(f"⚠️ Agent hit max iterations limit")
@@ -299,10 +467,10 @@ async def _agent_decide_next_action(session_id: str, user_message: str, context:
     # Count how many analysis steps have been done
     analysis_count = len([step for step in agent_state.reasoning_steps if step.type == "llm_decision" and "analysis" in step.content.lower()])
     
-    # Autonomous agent system prompt with continuity
-    system_prompt = f"""You are an autonomous legal compliance agent with full decision-making authority.
+    # Enhanced autonomous agent system prompt - 100% agent orchestrated
+    system_prompt = f"""You are an autonomous legal compliance agent with complete decision-making authority. You operate like ChatGPT or Cursor - making all workflow decisions independently through reasoning.
 
-CURRENT CONTEXT:
+=== CURRENT CONTEXT ===
 User Request: {user_message}
 Conversation History:
 {conversation_context}
@@ -318,41 +486,90 @@ STATE ANALYSIS:
 - Tool calls made: {len(agent_state.tool_results)}
 - Current iteration: Look at your previous reasoning steps above
 
+=== AUTONOMOUS AGENT FRAMEWORK ===
+
 AVAILABLE ACTIONS:
-1. "mcp_call" - Call MCP tools (legal_mcp.search_documents, requirements_mcp.search_requirements)
-2. "analysis" - Perform internal analysis/reasoning (ONLY if you haven't already analyzed this specific aspect)
-3. "response" - Send final response to user (when you have sufficient information)
-4. "hitl_prompt" - Ask user for approval/input (ONLY for MCP tool approval)
+1. "mcp_call" - Access external legal databases (requires human approval for security)
+   - legal_mcp.search_documents: Search legal regulations, statutes, case law
+   - requirements_mcp.search_requirements: Search technical requirements, standards
+2. "analysis" - Perform deep reasoning/analysis on available information
+3. "response" - Provide final answer to user (when sufficient information gathered)
+4. "hitl_prompt" - Request human input (rare - only for clarifications)
 
-AGENT RULES:
-- You have FULL AUTONOMY to decide next actions
-- AVOID REPETITION: Look at your previous reasoning steps - don't repeat the same analysis
-- BUILD ON PREVIOUS WORK: Each step should advance toward a complete response
-- For simple questions: Use "response" action directly
-- For complex legal queries needing external data: Use "mcp_call"
-- PROGRESS REQUIREMENT: Each decision must move closer to answering the user's question
+=== AGENT ORCHESTRATION PRINCIPLES ===
 
-DECISION LOGIC:
-- If you've already analyzed the core issues multiple times → Use "mcp_call" or "response"
-- If you need specific legal/regulatory data → Use "mcp_call"
-- If you have sufficient information → Use "response"
-- If you need to analyze a NEW aspect not covered in previous steps → Use "analysis"
+FULL AUTONOMY: You control ALL workflow decisions:
+- When to gather more information vs. respond immediately
+- How many analysis steps to perform 
+- Which external tools to use and in what order
+- How to structure and pace your reasoning process
+- Quality standards for your final response
 
-DECISION FORMAT:
-Respond with ONE action type and explain your reasoning:
+INTELLIGENT DECISION-MAKING:
+- Simple questions (definitions, basic concepts): Respond immediately if you have knowledge
+- Complex compliance analysis: May need 1-3 analysis steps + external data
+- Multi-jurisdictional queries: Often require MCP calls for specific regulations
+- Precedent/case law questions: Usually need legal database access
+
+EFFICIENCY OPTIMIZATION:
+- Avoid repetitive analysis - build on previous work
+- Batch related MCP calls when possible
+- Balance thoroughness with response time
+- Aim for complete, actionable answers
+
+ERROR HANDLING & QUALITY:
+- If MCP calls fail, acknowledge and work with available information
+- If analysis reveals gaps, either gather more data or acknowledge limitations
+- Provide confidence levels for complex legal interpretations
+- Always cite sources when making specific legal claims
+
+=== DECISION LOGIC FRAMEWORK ===
+
+RESPONSE IMMEDIATELY IF:
+- Question is straightforward and within your knowledge base
+- You have sufficient context from conversation history
+- No external data needed for accurate answer
+
+PERFORM ANALYSIS IF:
+- Need to reason through complex legal implications
+- Must synthesize multiple concepts or jurisdictions
+- Working through multi-step compliance assessment
+- Building on previous analysis with new insights
+
+CALL MCP TOOLS IF:
+- Need specific statute text, regulation details, or case law
+- User asks about specific jurisdictions (Utah, GDPR, CCPA, etc.)
+- Require current legal precedents or recent regulatory changes
+- Need to verify compliance requirements for specific industries
+
+=== RESPONSE QUALITY STANDARDS ===
+
+EXCELLENT RESPONSES INCLUDE:
+- Direct answer to user's specific question
+- Relevant legal context and implications
+- Specific citations when making legal claims
+- Practical next steps or recommendations
+- Clear confidence levels for interpretations
+
+AVOID:
+- Vague or overly general responses
+- Repeating previous analysis without new insights  
+- Unnecessary delays when you have sufficient information
+- Making specific legal claims without proper sourcing
+
+=== DECISION FORMAT ===
+Respond with exactly this format:
 
 ACTION_TYPE: [mcp_call|analysis|response|hitl_prompt]
-REASONING: [brief 15-word reason for this action choice]
-RESPONSE_CONTENT: [if action_type is "response", provide the complete final response to the user here]
-DETAILS: [specific details for other action types]
+REASONING: [Your strategic reasoning for this choice - 1-2 sentences]
+RESPONSE_CONTENT: [If action_type is "response", provide complete answer here]
+DETAILS: [For other action types: specific MCP query, analysis focus, etc.]
 
-IMPORTANT: If you choose "response" action, provide the complete final legal compliance analysis in RESPONSE_CONTENT that directly answers the user's question.
-
-What is your next action?"""
+What is your autonomous decision for the next action?"""
 
     try:
-        # Use more tokens for response actions to allow complete analysis
-        max_tokens = 1500 if "response" in system_prompt.lower() else 300
+        # Allocate tokens based on action type - agent controls response length
+        max_tokens = 2000  # Generous allocation for autonomous decision-making
         
         response = await llm_client.complete(
             system_prompt,
@@ -891,7 +1108,7 @@ async def _resume_autonomous_agent_locked(session_id: str, original_message: str
                 elif next_action.action_type == "analysis":
                     await _agent_perform_analysis(session_id, next_action)
                     # Yield control aggressively to allow frontend polling between reasoning steps  
-                    await asyncio.sleep(1.5)  # Increased delay for stability
+                    # Agent controls its own pacing - no artificial delays
                 elif next_action.action_type == "response":
                     await _agent_send_final_response(session_id, next_action)
                     break  # End the loop after final response
@@ -900,8 +1117,8 @@ async def _resume_autonomous_agent_locked(session_id: str, original_message: str
                     agent_state.status = "waiting_hitl"
                     break  # Wait for user input
                 
-                # Yield control between iterations for real-time frontend updates
-                await asyncio.sleep(1.5)  # Increased delay for stability
+                # Brief yield for frontend responsiveness (agent still controls overall pacing)
+                await asyncio.sleep(0.05)  # 50ms yield for UI updates
             
             if iteration >= max_iterations:
                 logger.warning(f"⚠️ Resumed agent hit max iterations limit")

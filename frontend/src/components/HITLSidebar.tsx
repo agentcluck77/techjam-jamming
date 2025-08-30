@@ -6,14 +6,15 @@ import { Progress } from '@/components/ui/progress'
 import { Card, CardHeader, CardContent } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectLabel, SelectGroup } from '@/components/ui/select'
 import { useHITL } from '@/hooks/use-hitl'
 import { useWorkflowStore } from '@/lib/stores'
 import { useSSE } from '@/hooks/use-sse'
 // Removed streaming chat - using autonomous agent mode only
 import { startWorkflow } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { Send, Bot, User, ChevronDown, ChevronRight, Settings, X, Check, XIcon, Code, AlertTriangle, RotateCcw, Brain } from 'lucide-react'
+import { Send, Bot, User, ChevronDown, ChevronRight, Settings, X, Check, XIcon, Code, AlertTriangle, RotateCcw, Brain, MessageSquarePlus, List } from 'lucide-react'
+import { ChatList } from './ChatList'
 
 interface HITLPrompt {
   prompt_id: string
@@ -186,8 +187,11 @@ export function HITLSidebar() {
   // Always use autonomous agent mode (no streaming toggle)
   
   // Model selection state
-  const [availableModels, setAvailableModels] = useState<Record<string, ModelInfo>>({})
-  const [currentModel, setCurrentModel] = useState<string>('gemini-1.5-flash')
+  const [availableModels, setAvailableModels] = useState<{
+    gemini_models: Record<string, ModelInfo>,
+    claude_models: Record<string, ModelInfo>
+  }>({ gemini_models: {}, claude_models: {} })
+  const [currentModel, setCurrentModel] = useState<string>('claude-sonnet-4-20250514')
   const [isModelLoading, setIsModelLoading] = useState(false)
   
   // Load available models on component mount
@@ -197,8 +201,11 @@ export function HITLSidebar() {
         const response = await fetch(`${API_BASE_URL}/api/v1/models/available`)
         if (response.ok) {
           const data = await response.json()
-          setAvailableModels(data.gemini_models || {})
-          setCurrentModel(data.current_model || 'gemini-1.5-flash')
+          setAvailableModels({
+            gemini_models: data.gemini_models || {},
+            claude_models: data.claude_models || {}
+          })
+          setCurrentModel(data.current_model || 'claude-sonnet-4-20250514')
         }
       } catch (error) {
         console.error('Failed to load models:', error)
@@ -217,6 +224,10 @@ export function HITLSidebar() {
   const [isResizing, setIsResizing] = useState(false)
   const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(null)
   const activePollingRef = useRef<Set<string>>(new Set()) // Track active polling loops
+  
+  // Chat state
+  const [selectedChat, setSelectedChat] = useState<any>(null)
+  const [showChatList, setShowChatList] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -320,6 +331,44 @@ export function HITLSidebar() {
     }
   }
 
+  const handleSelectChat = async (chat: any) => {
+    setSelectedChat(chat)
+    setShowChatList(false)
+    
+    // Load chat messages and replace current messages
+    const chatMessages: ChatMessage[] = chat.messages.map((msg: any) => ({
+      id: msg.id,
+      type: msg.type,
+      content: msg.content,
+      timestamp: new Date(msg.timestamp),
+      reasoning: msg.reasoning_steps?.map((step: any) => ({
+        type: step.type,
+        content: step.content,
+        duration: step.duration,
+        timestamp: step.timestamp
+      })),
+      reasoning_duration: msg.reasoning_steps?.reduce((total: number, step: any) => total + (step.duration || 0), 0),
+      is_reasoning_complete: true,
+      mcp_executions: msg.mcp_executions?.map((exec: any) => ({
+        tool: exec.tool,
+        query: exec.query,
+        results_count: exec.results_count || 0,
+        execution_time: exec.execution_time || 0,
+        result_summary: exec.result_summary || '',
+        timestamp: exec.timestamp,
+        raw_results: exec.raw_results
+      }))
+    }))
+    
+    setChatMessages(chatMessages)
+  }
+
+  const handleNewChat = () => {
+    setSelectedChat(null)
+    setChatMessages([])
+    setShowChatList(false)
+  }
+
 
   const handleChatSend = async () => {
     if (!chatInput.trim()) return
@@ -337,12 +386,16 @@ export function HITLSidebar() {
     }
     setChatMessages(prev => [...prev, userMessage])
     
-    // Use autonomous agent with MCP approval flow
+    // Use persistent chat session endpoint
     try {
-      const response = await fetch('/api/legal-chat', {
+      const response = await fetch(`${API_BASE_URL}/api/legal-chat/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: originalInput, context: '' })
+        body: JSON.stringify({ 
+          message: originalInput, 
+          context: '',
+          chat_id: selectedChat?.id  // Include chat ID for persistence
+        })
       })
       
       if (!response.ok) {
@@ -373,12 +426,13 @@ export function HITLSidebar() {
 
 
   const pollForWorkflowMessages = async (workflowId: string) => {
-    // Prevent duplicate polling loops for the same workflow
+    // Synchronous duplicate prevention - check and add atomically
     if (activePollingRef.current.has(workflowId)) {
       console.log(`🔄 Polling already active for workflow ${workflowId}, skipping duplicate`)
       return
     }
     
+    // Immediately add to prevent race condition
     activePollingRef.current.add(workflowId)
     console.log(`🔄 Starting polling for workflow ${workflowId}`)
     
@@ -513,6 +567,17 @@ export function HITLSidebar() {
               if (prev[i].workflow_id === workflowId && prev[i].type === 'assistant') {
                 targetMessageIndex = i
                 break
+              }
+            }
+            
+            // Check if reasoning is already up to date (prevent duplicate updates)
+            if (targetMessageIndex >= 0) {
+              const currentReasoning = prev[targetMessageIndex].reasoning || []
+              if (currentReasoning.length === result.reasoning.length && 
+                  result.reasoning.every((step: any, index: number) => 
+                    currentReasoning[index] && currentReasoning[index].content === step.content)) {
+                console.log('🔍 Reasoning already up to date, skipping duplicate update')
+                return prev
               }
             }
             
@@ -754,9 +819,44 @@ export function HITLSidebar() {
       />
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {hitlPrompt || progress ? 'Workflow Assistant' : 'Legal Chat'}
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-gray-900">
+              {hitlPrompt || progress ? 'Workflow Assistant' : showChatList ? 'Chat History' : selectedChat ? selectedChat.title : 'Legal Chat'}
+            </h2>
+            {!showChatList && !hitlPrompt && !progress && (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowChatList(true)}
+                  className="h-7 w-7 p-0"
+                  title="View chat history"
+                >
+                  <List className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleNewChat}
+                  className="h-7 w-7 p-0"
+                  title="New chat"
+                >
+                  <MessageSquarePlus className="w-4 h-4" />
+                </Button>
+              </div>
+            )}
+            {showChatList && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowChatList(false)}
+                className="h-7 w-7 p-0"
+                title="Back to chat"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
           <Button
             variant="ghost"
             size="sm"
@@ -828,6 +928,14 @@ export function HITLSidebar() {
               </CardContent>
             </Card>
           </div>
+        ) : showChatList ? (
+          /* Chat List View */
+          <ChatList
+            onSelectChat={handleSelectChat}
+            onNewChat={handleNewChat}
+            selectedChatId={selectedChat?.id}
+            className="flex-1"
+          />
         ) : (
           <>
 
@@ -1028,7 +1136,9 @@ export function HITLSidebar() {
                       <SelectValue>
                         <div className="flex items-center gap-1">
                           <span className="truncate">
-                            {availableModels[currentModel]?.name || currentModel}
+                            {availableModels.gemini_models[currentModel]?.name || 
+                             availableModels.claude_models[currentModel]?.name || 
+                             currentModel}
                           </span>
                           {isModelLoading && (
                             <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
@@ -1037,16 +1147,39 @@ export function HITLSidebar() {
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(availableModels).map(([modelId, modelInfo]) => (
-                        <SelectItem key={modelId} value={modelId} className="text-xs">
-                          <div className="flex flex-col items-start">
-                            <span className="font-medium">{modelInfo.name}</span>
-                            <span className="text-gray-500 text-xs truncate">
-                              {modelInfo.description}
-                            </span>
-                          </div>
-                        </SelectItem>
-                      ))}
+                      {/* Gemini Models Group */}
+                      <SelectGroup>
+                        <SelectLabel className="text-xs font-semibold text-gray-700">
+                          Google Gemini Models
+                        </SelectLabel>
+                        {Object.entries(availableModels.gemini_models).map(([modelId, modelInfo]) => (
+                          <SelectItem key={modelId} value={modelId} className="text-xs">
+                            <div className="flex flex-col items-start">
+                              <span className="font-medium">{modelInfo.name}</span>
+                              <span className="text-gray-500 text-xs truncate">
+                                {modelInfo.description}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                      
+                      {/* Claude Models Group */}
+                      <SelectGroup>
+                        <SelectLabel className="text-xs font-semibold text-gray-700">
+                          Anthropic Claude Models
+                        </SelectLabel>
+                        {Object.entries(availableModels.claude_models).map(([modelId, modelInfo]) => (
+                          <SelectItem key={modelId} value={modelId} className="text-xs">
+                            <div className="flex flex-col items-start">
+                              <span className="font-medium">{modelInfo.name}</span>
+                              <span className="text-gray-500 text-xs truncate">
+                                {modelInfo.description}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
                 </div>

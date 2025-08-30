@@ -16,7 +16,9 @@ class LLMProvider(Enum):
     GEMINI_PRO = "gemini-1.5-pro"
     GEMINI_FLASH_8B = "gemini-1.5-flash-8b"
     GEMINI_2_FLASH = "gemini-2.0-flash-exp"
-    CLAUDE_SONNET = "claude-3-5-sonnet-20241022"
+    CLAUDE_3_5_SONNET = "claude-3-5-sonnet-20241022"
+    CLAUDE_3_HAIKU = "claude-3-haiku-20240307"
+    CLAUDE_3_OPUS = "claude-3-opus-20240229"
     GPT_4 = "gpt-4"
 
 # Gemini model configurations
@@ -47,6 +49,52 @@ GEMINI_MODELS = {
     }
 }
 
+# Claude model configurations (using confirmed working model IDs from Anthropic docs)
+CLAUDE_MODELS = {
+    "claude-sonnet-4-20250514": {
+        "name": "Claude 4 Sonnet",
+        "description": "Latest Claude 4 Sonnet with enhanced reasoning capabilities",
+        "input_tokens": 200000,
+        "output_tokens": 8192
+    },
+    "claude-opus-4-1-20250805": {
+        "name": "Claude 4.1 Opus",
+        "description": "Most advanced Claude model with extended thinking",
+        "input_tokens": 200000,
+        "output_tokens": 8192
+    },
+    "claude-opus-4-20250514": {
+        "name": "Claude 4 Opus",
+        "description": "Highly capable Claude 4 model for complex reasoning",
+        "input_tokens": 200000,
+        "output_tokens": 8192
+    },
+    "claude-3-5-sonnet-20241022": {
+        "name": "Claude 3.5 Sonnet",
+        "description": "Most intelligent Claude 3.5 model, excellent at complex reasoning",
+        "input_tokens": 200000,
+        "output_tokens": 8192
+    },
+    "claude-3-5-haiku-20241022": {
+        "name": "Claude 3.5 Haiku",
+        "description": "Fast and efficient Claude 3.5 model",
+        "input_tokens": 200000,
+        "output_tokens": 8192
+    },
+    "claude-3-haiku-20240307": {
+        "name": "Claude 3 Haiku",
+        "description": "Fastest and most cost-effective Claude model",
+        "input_tokens": 200000,
+        "output_tokens": 4096
+    },
+    "claude-3-opus-20240229": {
+        "name": "Claude 3 Opus",
+        "description": "Most powerful Claude 3 model for complex tasks",
+        "input_tokens": 200000,
+        "output_tokens": 4096
+    }
+}
+
 class SimpleLLMClient:
     """
     Simple LLM client with multiple provider support
@@ -58,10 +106,13 @@ class SimpleLLMClient:
         self.available_providers = []
         self.preferred_model = None
         self._initialize_clients()
+        # Set Claude Sonnet 4 as default preferred model if no preference set
+        if not self.preferred_model and "claude-sonnet-4-20250514" in CLAUDE_MODELS:
+            self.preferred_model = "claude-sonnet-4-20250514"
     
     def set_preferred_model(self, model_id: str):
-        """Set preferred Gemini model for analysis"""
-        if model_id in GEMINI_MODELS:
+        """Set preferred model for analysis"""
+        if model_id in GEMINI_MODELS or model_id in CLAUDE_MODELS:
             self.preferred_model = model_id
             logger.info(f"Preferred model set to: {model_id}")
         else:
@@ -94,8 +145,11 @@ class SimpleLLMClient:
                 self.anthropic_client = anthropic.Anthropic(
                     api_key=settings.anthropic_api_key
                 )
-                self.available_providers.append(LLMProvider.CLAUDE_SONNET)
-                logger.info("✅ Anthropic Claude client initialized")
+                # Add all Claude models to available providers  
+                for model_id in CLAUDE_MODELS.keys():
+                    # Create enum-like providers for each model
+                    self.available_providers.append(type('Provider', (), {'value': model_id})())
+                logger.info("✅ Anthropic Claude client initialized with all models")
             except Exception as e:
                 logger.warning(f"Failed to initialize Anthropic client: {e}")
         
@@ -118,26 +172,36 @@ class SimpleLLMClient:
     
     async def complete(self, prompt: str, max_tokens: int = 2000, temperature: float = 0.1) -> Dict[str, Any]:
         """
-        Generate completion using the first available provider
-        Phase 1: Simple fallback chain
+        Generate completion using preferred model or fallback chain
         """
         
         if not self.available_providers:
             raise Exception("No LLM providers available. Please configure API keys.")
         
-        # Try providers in order of preference
+        # If we have a preferred model, try it first
+        if self.preferred_model:
+            try:
+                if self.preferred_model in GEMINI_MODELS:
+                    return await self._complete_gemini(prompt, max_tokens, temperature, self.preferred_model)
+                elif self.preferred_model in CLAUDE_MODELS:
+                    return await self._complete_claude(prompt, max_tokens, temperature, self.preferred_model)
+            except Exception as e:
+                logger.warning(f"Preferred model {self.preferred_model} failed: {e}")
+                # Fall back to provider chain
+        
+        # Fallback: Try providers in order of availability
         for provider in self.available_providers:
             try:
                 if provider in [LLMProvider.GEMINI_FLASH, LLMProvider.GEMINI_PRO, 
                                LLMProvider.GEMINI_FLASH_8B, LLMProvider.GEMINI_2_FLASH]:
                     return await self._complete_gemini(prompt, max_tokens, temperature, provider.value)
-                elif provider == LLMProvider.CLAUDE_SONNET:
-                    return await self._complete_claude(prompt, max_tokens, temperature)
+                elif hasattr(provider, 'value') and provider.value in CLAUDE_MODELS:
+                    return await self._complete_claude(prompt, max_tokens, temperature, provider.value)
                 elif provider == LLMProvider.GPT_4:
                     return await self._complete_openai(prompt, max_tokens, temperature)
                     
             except Exception as e:
-                logger.warning(f"LLM provider {provider.value} failed: {e}")
+                logger.warning(f"LLM provider {getattr(provider, 'value', provider)} failed: {e}")
                 continue
         
         raise Exception("All LLM providers failed")
@@ -159,8 +223,8 @@ class SimpleLLMClient:
                     async for chunk in self._stream_gemini(prompt, max_tokens, temperature, provider.value):
                         yield chunk
                     return
-                elif provider == LLMProvider.CLAUDE_SONNET:
-                    async for chunk in self._stream_claude(prompt, max_tokens, temperature):
+                elif hasattr(provider, 'value') and provider.value in CLAUDE_MODELS:
+                    async for chunk in self._stream_claude(prompt, max_tokens, temperature, provider.value):
                         yield chunk
                     return
                 elif provider == LLMProvider.GPT_4:
@@ -260,12 +324,20 @@ class SimpleLLMClient:
             logger.error(f"Gemini streaming API error: {e}")
             raise
     
-    async def _complete_claude(self, prompt: str, max_tokens: int, temperature: float) -> Dict[str, Any]:
-        """Complete using Anthropic Claude"""
+    async def _complete_claude(self, prompt: str, max_tokens: int, temperature: float, model_id: str = None) -> Dict[str, Any]:
+        """Complete using Anthropic Claude with specified model"""
         
         try:
+            # Use preferred model if set, otherwise use the passed model_id or default
+            if self.preferred_model and self.preferred_model in CLAUDE_MODELS:
+                model_to_use = self.preferred_model
+            elif model_id and model_id in CLAUDE_MODELS:
+                model_to_use = model_id
+            else:
+                model_to_use = "claude-sonnet-4-20250514"
+            
             response = self.anthropic_client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model=model_to_use,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 messages=[{"role": "user", "content": prompt}]
@@ -273,20 +345,28 @@ class SimpleLLMClient:
             
             return {
                 "content": response.content[0].text,
-                "model": "claude-3-5-sonnet-20241022",
-                "tokens_used": response.usage.total_tokens
+                "model": model_to_use,
+                "tokens_used": response.usage.input_tokens + response.usage.output_tokens
             }
             
         except Exception as e:
             logger.error(f"Claude API error: {e}")
             raise
     
-    async def _stream_claude(self, prompt: str, max_tokens: int, temperature: float):
-        """Stream using Anthropic Claude"""
+    async def _stream_claude(self, prompt: str, max_tokens: int, temperature: float, model_id: str = None):
+        """Stream using Anthropic Claude with specified model"""
         
         try:
+            # Use preferred model if set, otherwise use the passed model_id or default
+            if self.preferred_model and self.preferred_model in CLAUDE_MODELS:
+                model_to_use = self.preferred_model
+            elif model_id and model_id in CLAUDE_MODELS:
+                model_to_use = model_id
+            else:
+                model_to_use = "claude-sonnet-4-20250514"
+            
             with self.anthropic_client.messages.stream(
-                model="claude-3-5-sonnet-20241022",
+                model=model_to_use,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 messages=[{"role": "user", "content": prompt}]
@@ -294,14 +374,14 @@ class SimpleLLMClient:
                 for text in stream.text_stream:
                     yield {
                         "content": text,
-                        "model": "claude-3-5-sonnet-20241022",
+                        "model": model_to_use,
                         "done": False
                     }
             
             # Final chunk to indicate completion
             yield {
                 "content": "",
-                "model": "claude-3-5-sonnet-20241022",
+                "model": model_to_use,
                 "done": True
             }
             

@@ -136,3 +136,39 @@ class HealthStatus(BaseModel):
     timestamp: datetime
     services: Dict[str, str]
     version: str = "1.0.0"
+
+# Chat System Models
+class ChatMessage(BaseModel):
+    """Individual chat message"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    type: Literal["user", "assistant", "system"] = Field(..., description="Message type")
+    content: str = Field(..., description="Message content")
+    timestamp: datetime = Field(default_factory=datetime.now)
+    model_used: Optional[str] = Field(None, description="LLM model that generated this message")
+    reasoning_steps: Optional[List[Dict[str, Any]]] = Field(None, description="Agent reasoning steps")
+    mcp_executions: Optional[List[Dict[str, Any]]] = Field(None, description="MCP tool executions")
+
+class ChatSession(BaseModel):
+    """Chat session with persistent context"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    title: str = Field(..., description="Chat session title")
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    messages: List[ChatMessage] = Field(default_factory=list)
+    status: Literal["active", "archived"] = Field(default="active")
+    model_preference: Optional[str] = Field(None, description="Preferred model for this chat")
+
+class CreateChatRequest(BaseModel):
+    """Request to create a new chat session"""
+    title: Optional[str] = Field(None, description="Optional chat title")
+    initial_message: Optional[str] = Field(None, description="First message to send")
+
+class ChatListResponse(BaseModel):
+    """Response with list of chat sessions"""
+    chats: List[ChatSession]
+    total: int
+
+class SendMessageRequest(BaseModel):
+    """Request to send a message in a chat"""
+    message: str = Field(..., description="Message content")
+    model_preference: Optional[str] = Field(None, description="Model to use for this message")
