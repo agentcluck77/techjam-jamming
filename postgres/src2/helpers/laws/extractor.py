@@ -1,4 +1,4 @@
-#llm to clean law document to leave just definitions and regulations
+#llm to split law id and regulation
 
 import asyncio
 import sys
