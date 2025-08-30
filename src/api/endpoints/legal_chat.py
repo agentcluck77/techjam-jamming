@@ -1,6 +1,10 @@
 """
-Legal compliance chat endpoint - Fully LLM-orchestrated autonomous agent.
-Real-time agent orchestration with tool calling and HITL gates, similar to Claude Code/Cursor.
+Legal compliance chat endpoint - Enhanced LawyerAgent with configurable prompts.
+Single unified agent architecture using LawyerAgent.run_autonomous_workflow() with:
+- Configurable system prompts from UI editors (system_prompt.md, knowledge_base.md)
+- Real-time agent orchestration with tool calling and HITL gates
+- MCP integration for legal and requirements document processing
+- Background task support with polling/workflow status integration
 """
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
@@ -23,15 +27,13 @@ from .hitl import WorkflowStartRequest, active_workflows, send_hitl_prompt, wait
 router = APIRouter(prefix="/api", tags=["legal-chat"])
 logger = logging.getLogger(__name__)
 
-# Initialize the lawyer agent for MCP calls
-lawyer_agent = LawyerAgent()
+# Single unified LawyerAgent architecture with configurable prompts
+lawyer_agent = LawyerAgent()  # Legacy instance for compatibility
+enhanced_lawyer_agent = LawyerAgent()  # Main instance for autonomous workflows
 
-# Enhanced lawyer agent for testing (Phase 1 implementation)
-enhanced_lawyer_agent = LawyerAgent()
-
-# Agent state management
-agent_sessions = {}
-agent_locks = {}  # Prevent concurrent agent loops
+# Agent state management for enhanced LawyerAgent integration
+agent_sessions = {}  # Bridge enhanced LawyerAgent state with existing polling system
+agent_locks = {}  # Prevent concurrent agent loops (legacy compatibility)
 chat_request_locks = {}  # Prevent duplicate requests per chat
 
 class ChatRequest(BaseModel):
@@ -238,13 +240,30 @@ async def legal_compliance_chat_session(request: ChatRequest, background_tasks: 
             )
             agent_locks[session_id] = asyncio.Lock()
             
-            # Start autonomous agent loop
-            background_tasks.add_task(_run_persistent_chat_agent, session_id, chat_session.id, request.message, request.context)
+            # Set up HITL callback for enhanced agent
+            async def hitl_callback(session_id: str, prompt: Dict[str, Any]):
+                # Integrate with existing HITL system for persistent chat
+                prompt_id = str(uuid.uuid4())
+                pending_hitl_prompts[prompt_id] = {
+                    "workflow_id": session_id,
+                    "question": prompt["question"],
+                    "options": prompt["options"],
+                    "context": prompt["context"],
+                    "sent": False,
+                    "completed": False,
+                    "timestamp": datetime.now().isoformat()
+                }
+                logger.info(f"🔒 HITL Prompt created for persistent chat: {prompt_id}")
             
-            # Add agent activation as reasoning step
+            enhanced_lawyer_agent.set_hitl_callback(hitl_callback)
+            
+            # Start enhanced autonomous agent loop
+            background_tasks.add_task(_run_enhanced_persistent_chat_agent, session_id, chat_session.id, request.message, request.context, request.api_keys)
+            
+            # Add agent activation as reasoning step  
             agent_sessions[session_id].reasoning_steps.append(ReasoningStep(
                 type="agent_startup",
-                content=f"🤖 **Legal Agent Activated** (Session: {chat_session.id})\n\nContinuing analysis with {len(conversation_history)} previous messages in context.",
+                content=f"🧠 **Enhanced Legal Agent Activated** (Session: {chat_session.id})\n\nContinuing analysis with {len(conversation_history)} previous messages in context.\n\n**Uses Configurable Prompts**: System prompts and knowledge base from UI editors.",
                 duration=0.1,
                 timestamp=datetime.now().isoformat()
             ))
@@ -273,47 +292,53 @@ async def legal_compliance_chat_session(request: ChatRequest, background_tasks: 
 @router.post("/legal-chat", response_model=ChatResponse)
 async def legal_compliance_chat(request: ChatRequest, background_tasks: BackgroundTasks):
     """
-    Autonomous LLM agent for legal compliance - fully orchestrated like Claude Code/Cursor
+    Enhanced Autonomous LLM agent for legal compliance - now uses configurable system prompts
+    MIGRATED: Now uses enhanced LawyerAgent with configurable prompts from UI editors
     """
     
-    logger.info(f"🤖 AUTONOMOUS AGENT - Message: '{request.message[:100]}...'")
+    logger.info(f"🧠 ENHANCED AUTONOMOUS AGENT - Message: '{request.message[:100]}...'")
     
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
     
     try:
-        # Generate unique agent session
+        # Generate unique agent session (preserve existing format)
         session_id = f"agent-{uuid.uuid4().hex[:8]}"
         
-        # Initialize agent state and lock
-        start_time = datetime.now()
-        agent_sessions[session_id] = AgentState(
-            session_id=session_id,
-            conversation_history=[{"role": "user", "content": request.message}],
-            current_task=f"legal_analysis: {request.message[:50]}...",
-            start_time=start_time,
-            status="active",
-            api_keys=request.api_keys
-        )
-        agent_locks[session_id] = asyncio.Lock()  # Prevent concurrent loops
+        # Set up HITL callback for MCP approval prompts (integrate with existing HITL system)
+        async def hitl_callback(session_id: str, prompt: Dict[str, Any]):
+            # Integrate with existing HITL system
+            prompt_id = str(uuid.uuid4())
+            pending_hitl_prompts[prompt_id] = {
+                "workflow_id": session_id,
+                "question": prompt["question"],
+                "options": prompt["options"],
+                "context": prompt["context"],
+                "sent": False,
+                "completed": False,
+                "timestamp": datetime.now().isoformat()
+            }
+            logger.info(f"🔒 HITL Prompt created: {prompt_id} for session {session_id}")
         
-        # Start autonomous agent loop
-        background_tasks.add_task(_run_autonomous_agent, session_id, request.message, request.context)
+        enhanced_lawyer_agent.set_hitl_callback(hitl_callback)
         
-        # Add agent activation as reasoning step
-        agent_sessions[session_id].reasoning_steps.append(ReasoningStep(
+        # Start enhanced autonomous workflow in background
+        background_tasks.add_task(_run_enhanced_autonomous_agent, session_id, request.message, request.context, request.api_keys)
+        
+        # Create initial reasoning step (preserve existing UX)
+        initial_reasoning = ReasoningStep(
             type="agent_startup",
-            content=f"🤖 **Autonomous Legal Agent Activated**\n\nStarting autonomous analysis of: \"{request.message[:100]}...\"\n\n**Agent Session**: `{session_id}`\n\nI'll analyze your request and autonomously determine what actions to take.",
+            content=f"🧠 **Enhanced Autonomous Legal Agent Activated** (Uses Configurable Prompts)\n\nStarting autonomous analysis of: \"{request.message[:100]}...\"\n\n**Agent Session**: `{session_id}`\n\nI'll analyze your request using your configured system prompts and knowledge base.",
             duration=0.1,
             timestamp=datetime.now().isoformat()
-        ))
+        )
         
         return ChatResponse(
-            response="⏳ Analyzing your request...",
+            response="⏳ Analyzing your request with enhanced agent...",
             timestamp=datetime.now().isoformat(),
             workflow_started=True,
             workflow_id=session_id,
-            reasoning=[agent_sessions[session_id].reasoning_steps[0]],
+            reasoning=[initial_reasoning],
             reasoning_duration=0.1,
             is_reasoning_complete=False
         )
@@ -403,450 +428,227 @@ async def legal_compliance_chat_enhanced(request: ChatRequest):
             workflow_id=None
         )
 
-async def _run_persistent_chat_agent(session_id: str, chat_id: str, user_message: str, context: Optional[str]):
+
+
+async def _run_enhanced_autonomous_agent(session_id: str, user_message: str, context: Optional[str], api_keys: Optional[Dict[str, str]]):
     """
-    Persistent chat agent - saves assistant responses to database
+    Enhanced autonomous agent using LawyerAgent with configurable prompts
+    Bridges enhanced LawyerAgent with existing polling/HITL infrastructure
     """
     
-    # Run the standard autonomous agent
-    await _run_autonomous_agent(session_id, user_message, context)
-    
-    # After agent completes, save assistant response to database
     try:
-        if session_id in active_workflows and active_workflows[session_id].get("status") == "complete":
-            final_response = active_workflows[session_id].get("final_response", "")
+        logger.info(f"🧠 Starting enhanced autonomous agent for session {session_id}")
+        
+        # Run enhanced LawyerAgent workflow
+        result = await enhanced_lawyer_agent.run_autonomous_workflow(
+            session_id=session_id,
+            user_message=user_message, 
+            context=context,
+            api_keys=api_keys
+        )
+        
+        # Get enhanced agent session state
+        enhanced_state = enhanced_lawyer_agent.get_session_state(session_id)
+        reasoning_steps = enhanced_lawyer_agent.get_reasoning_steps(session_id)
+        mcp_executions = enhanced_lawyer_agent.get_mcp_executions(session_id)
+        
+        if enhanced_state:
+            # Create compatible agent state for existing polling system
+            if session_id not in agent_sessions:
+                agent_sessions[session_id] = AgentState(
+                    session_id=session_id,
+                    conversation_history=enhanced_state.conversation_history,
+                    current_task=enhanced_state.current_task,
+                    tool_results=enhanced_state.tool_results,
+                    reasoning_steps=[],  # Will sync below
+                    start_time=enhanced_state.start_time,
+                    status="active",
+                    mcp_sent_count=enhanced_state.mcp_sent_count,
+                    mcp_executions_for_chat=[],  # Will sync below
+                    api_keys=api_keys
+                )
             
-            if final_response and final_response.strip():
-                # Get reasoning steps and MCP executions for storage
-                agent_state = agent_sessions.get(session_id)
-                reasoning_steps = []
-                mcp_executions = []
-                
-                if agent_state:
-                    reasoning_steps = [
-                        {
+            # Sync reasoning steps to compatible format
+            agent_sessions[session_id].reasoning_steps = [
+                ReasoningStep(
+                    type=step.type,
+                    content=step.content,
+                    duration=step.duration,
+                    timestamp=step.timestamp
+                ) for step in reasoning_steps
+            ]
+            
+            # Sync MCP executions to compatible format
+            agent_sessions[session_id].mcp_executions_for_chat = mcp_executions
+            agent_sessions[session_id].mcp_sent_count = enhanced_state.mcp_sent_count
+            
+            # Handle different result types
+            if isinstance(result, str):
+                if result == session_id:
+                    # Session ID returned - agent waiting for HITL
+                    agent_sessions[session_id].status = "waiting_hitl"
+                    active_workflows[session_id] = {
+                        "id": session_id,
+                        "status": "waiting_hitl", 
+                        "created_at": datetime.now().isoformat()
+                    }
+                else:
+                    # Final response returned
+                    agent_sessions[session_id].status = "completed"
+                    active_workflows[session_id] = {
+                        "id": session_id,
+                        "status": "complete",
+                        "final_response": result,
+                        "completed_at": datetime.now().isoformat()
+                    }
+            else:
+                # Unexpected result format
+                agent_sessions[session_id].status = "completed" 
+                active_workflows[session_id] = {
+                    "id": session_id,
+                    "status": "complete",
+                    "final_response": str(result),
+                    "completed_at": datetime.now().isoformat()
+                }
+        
+        logger.info(f"✅ Enhanced autonomous agent completed for session {session_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Enhanced autonomous agent failed for {session_id}: {e}")
+        
+        # Ensure agent state exists for error handling
+        if session_id not in agent_sessions:
+            agent_sessions[session_id] = AgentState(
+                session_id=session_id,
+                conversation_history=[{"role": "user", "content": user_message}],
+                current_task=f"legal_analysis: {user_message[:50]}...",
+                start_time=datetime.now(),
+                status="error",
+                api_keys=api_keys
+            )
+        else:
+            agent_sessions[session_id].status = "error"
+        
+        active_workflows[session_id] = {
+            "id": session_id,
+            "status": "error",
+            "error": f"Enhanced agent error: {str(e)}",
+            "completed_at": datetime.now().isoformat()
+        }
+
+async def _run_enhanced_persistent_chat_agent(session_id: str, chat_id: str, user_message: str, context: Optional[str], api_keys: Optional[Dict[str, str]]):
+    """
+    Enhanced persistent chat agent using LawyerAgent with configurable prompts
+    Saves responses to database and bridges enhanced LawyerAgent with existing chat storage
+    """
+    
+    try:
+        logger.info(f"🧠 Starting enhanced persistent chat agent for session {session_id}, chat {chat_id}")
+        
+        # Run enhanced LawyerAgent workflow
+        result = await enhanced_lawyer_agent.run_autonomous_workflow(
+            session_id=session_id,
+            user_message=user_message, 
+            context=context,
+            api_keys=api_keys
+        )
+        
+        # Get enhanced agent session state
+        enhanced_state = enhanced_lawyer_agent.get_session_state(session_id)
+        reasoning_steps = enhanced_lawyer_agent.get_reasoning_steps(session_id)
+        mcp_executions = enhanced_lawyer_agent.get_mcp_executions(session_id)
+        
+        if enhanced_state:
+            # Sync with existing agent_sessions for polling compatibility
+            if session_id in agent_sessions:
+                agent_sessions[session_id].reasoning_steps = [
+                    ReasoningStep(
+                        type=step.type,
+                        content=step.content,
+                        duration=step.duration,
+                        timestamp=step.timestamp
+                    ) for step in reasoning_steps
+                ]
+                agent_sessions[session_id].mcp_executions_for_chat = mcp_executions
+                agent_sessions[session_id].mcp_sent_count = enhanced_state.mcp_sent_count
+            
+            # Handle result and save to database
+            if isinstance(result, str):
+                if result == session_id:
+                    # Session ID returned - agent waiting for HITL
+                    agent_sessions[session_id].status = "waiting_hitl"
+                    active_workflows[session_id] = {
+                        "id": session_id,
+                        "status": "waiting_hitl", 
+                        "created_at": datetime.now().isoformat()
+                    }
+                else:
+                    # Final response returned - save to database
+                    agent_sessions[session_id].status = "completed"
+                    active_workflows[session_id] = {
+                        "id": session_id,
+                        "status": "complete",
+                        "final_response": result,
+                        "completed_at": datetime.now().isoformat()
+                    }
+                    
+                    # Save assistant response to database
+                    assistant_message = PersistentChatMessage(
+                        type="assistant",
+                        content=result,
+                        timestamp=datetime.now(),
+                        model_used="enhanced-lawyer-agent",
+                        reasoning_steps=[{
                             "type": step.type,
                             "content": step.content,
                             "duration": step.duration,
                             "timestamp": step.timestamp
-                        } for step in agent_state.reasoning_steps
-                    ]
-                    
-                    # Convert MCP executions from agent state
-                    if hasattr(agent_state, 'mcp_executions_for_chat'):
-                        mcp_executions = agent_state.mcp_executions_for_chat
-                
-                # Create assistant message
-                assistant_message = PersistentChatMessage(
-                    type="assistant",
-                    content=final_response,
-                    timestamp=datetime.now(),
-                    model_used=llm_client.preferred_model,
-                    reasoning_steps=reasoning_steps,
-                    mcp_executions=mcp_executions
-                )
-                
-                # Save to database
-                await chat_storage.add_message(chat_id, assistant_message)
-                logger.info(f"💾 Saved assistant response to chat {chat_id}")
-                
-    except Exception as e:
-        logger.error(f"❌ Failed to save assistant response to database: {e}")
-
-async def _run_autonomous_agent(session_id: str, user_message: str, context: Optional[str]):
-    """
-    Autonomous LLM agent loop - like Claude Code/Cursor agent orchestration.
-    The LLM has full autonomy to decide next actions, call tools, and interact.
-    """
-    
-    # Acquire lock to prevent concurrent agent loops
-    if session_id not in agent_locks:
-        logger.error(f"❌ No lock found for session {session_id}")
-        return
+                        } for step in reasoning_steps],
+                        mcp_executions=mcp_executions if mcp_executions else []
+                    )
+                    await chat_storage.add_message(chat_id, assistant_message)
         
-    async with agent_locks[session_id]:
-        agent_state = agent_sessions[session_id]
-        logger.info(f"🤖 Starting autonomous agent loop for session {session_id}")
-        
-        # Add the new user message to conversation history
-        agent_state.conversation_history.append({
-            "role": "user",
-            "content": user_message
-        })
-        logger.info(f"📝 Added user message to conversation history. Total messages: {len(agent_state.conversation_history)}")
-        
-        try:
-            # Main agent orchestration loop
-            max_iterations = 10  # Prevent infinite loops
-            iteration = 0
-            
-            while iteration < max_iterations and agent_state.status == "active":
-                iteration += 1
-                logger.info(f"🔄 Agent iteration {iteration}/{max_iterations}")
-                
-                # Get next action from LLM agent
-                next_action = await _agent_decide_next_action(session_id, user_message, context)
-                
-                if not next_action:
-                    logger.warning(f"❌ Agent couldn't decide next action - ending loop")
-                    break
-                    
-                logger.info(f"🎯 Agent decided: {next_action.action_type}")
-                
-                # Execute the action
-                if next_action.action_type == "mcp_call":
-                    # Check MCP limit before proceeding
-                    if agent_state.mcp_sent_count >= 5:
-                        logger.info(f"⚠️ MCP limit reached ({agent_state.mcp_sent_count}/5), forcing analysis instead")
-                        # Force the agent to do analysis with available information
-                        next_action.action_type = "analysis"
-                        next_action.details = {"description": "MCP limit reached, analyzing with available information"}
-                        await _agent_perform_analysis(session_id, next_action)
-                    else:
-                        # MCP calls require HITL approval - send HITL prompt first
-                        await _agent_send_mcp_approval_prompt(session_id, next_action)
-                        agent_state.status = "waiting_hitl"
-                        break  # Wait for user approval
-                elif next_action.action_type == "analysis":
-                    await _agent_perform_analysis(session_id, next_action)
-                    # Yield control aggressively to allow frontend polling between reasoning steps  
-                    # Agent controls its own pacing - no artificial delays
-                elif next_action.action_type == "response":
-                    await _agent_send_final_response(session_id, next_action)
-                    break  # End the loop after final response
-                elif next_action.action_type == "hitl_prompt":
-                    await _agent_send_hitl_prompt(session_id, next_action)
-                    agent_state.status = "waiting_hitl"
-                    break  # Wait for user input
-                
-                # Brief yield for frontend responsiveness (agent still controls overall pacing)
-                await asyncio.sleep(0.05)  # 50ms yield for UI updates
-            
-            if iteration >= max_iterations:
-                logger.warning(f"⚠️ Agent hit max iterations limit")
-                agent_state.status = "completed"
-                # Send timeout message
-                active_workflows[session_id] = {
-                    "id": session_id,
-                    "status": "complete",
-                    "final_response": "⏰ **Agent Analysis Complete**\n\nI've reached my processing limit. The analysis I've performed so far is available above.",
-                    "completed_at": datetime.now().isoformat()
-                }
-            
-        except Exception as e:
-            logger.error(f"❌ Autonomous agent failed for {session_id}: {e}")
-            agent_state.status = "error"
-            active_workflows[session_id] = {
-                "id": session_id,
-                "status": "error",
-                "error": f"Agent encountered an error: {str(e)}",
-                "completed_at": datetime.now().isoformat()
-            }
-
-async def _agent_decide_next_action(session_id: str, user_message: str, context: Optional[str]) -> Optional[AgentAction]:
-    """
-    Autonomous LLM agent decides what to do next - like Claude Code's tool calling system.
-    The agent has full autonomy to choose actions based on conversation state.
-    """
-    
-    agent_state = agent_sessions[session_id]
-    decision_start = datetime.now()
-    
-    # Build context from conversation history and tool results
-    conversation_context = "\n".join([
-        f"{msg['role']}: {msg['content']}" 
-        for msg in agent_state.conversation_history
-    ])
-    
-    tool_results_context = "\n".join([
-        f"Tool Result: {json.dumps(result, indent=2)}"
-        for result in agent_state.tool_results
-    ])
-    
-    # Build reasoning steps context to show agent what it has already done
-    reasoning_steps_context = "\n".join([
-        f"Step {i+1}: {step.type.upper()} - {step.content}"
-        for i, step in enumerate(agent_state.reasoning_steps)
-    ]) or "No previous reasoning steps"
-    
-    # Count how many analysis steps have been done
-    analysis_count = len([step for step in agent_state.reasoning_steps if step.type == "llm_decision" and "analysis" in step.content.lower()])
-    
-    # Enhanced autonomous agent system prompt - 100% agent orchestrated
-    system_prompt = f"""You are an autonomous compliance gap detection agent. Your sole purpose is to identify specific compliance gaps in requirements/documents with strong logical reasoning. You operate like ChatGPT or Cursor - making all workflow decisions independently.
-
-=== CURRENT CONTEXT ===
-User Request: {user_message}
-Conversation History:
-{conversation_context}
-
-PREVIOUS REASONING STEPS:
-{reasoning_steps_context}
-
-Previous Tool Results:
-{tool_results_context}
-
-STATE ANALYSIS:
-- Analysis decisions made: {analysis_count}
-- Tool calls made: {len(agent_state.tool_results)}
-- MCP calls made: {agent_state.mcp_sent_count} (limit: 5 per session)
-- Current iteration: Look at your previous reasoning steps above
-
-=== AUTONOMOUS AGENT FRAMEWORK ===
-
-AVAILABLE ACTIONS:
-1. "mcp_call" - Access external legal databases (requires human approval for security)
-   
-   REQUIREMENTS MCP TOOLS:
-   - Tool: requirements_mcp.search_requirements
-   - For document content: Use query "document_id:UUID extract requirements" 
-   - For semantic search: Use query "your search terms"
-   - For status check: Use query "check_document_status document_id:UUID"
-   - Examples:
-     * "document_id:b7c3f61a-a1d0-48f1-9e99-352f86329aa1 extract all requirements"
-     * "check_document_status document_id:b7c3f61a-a1d0-48f1-9e99-352f86329aa1"
-     * "API authentication requirements"
-   
-   LEGAL MCP TOOLS:
-   - Tool: legal_mcp.search_documents  
-   - For semantic search: Use query "your legal search terms"
-   - Example: "GDPR data protection requirements"
-   
-   - NOTE: Limited to {5 - agent_state.mcp_sent_count} more MCP calls this session
-2. "analysis" - Identify specific compliance gaps with logical reasoning
-3. "response" - Provide focused compliance gap report (when sufficient information gathered)
-4. "hitl_prompt" - Request human input (rare - only for clarifications)
-
-=== AGENT ORCHESTRATION PRINCIPLES ===
-
-FULL AUTONOMY: You control ALL workflow decisions:
-- When to gather more information vs. respond immediately
-- How many analysis steps to perform 
-- Which external tools to use and in what order
-- How to structure and pace your reasoning process
-- Quality standards for your final response
-
-COMPLIANCE GAP DETECTION FOCUS:
-- Your ONLY job is to identify specific compliance gaps with strong reasoning
-- Simple gap detection: Respond immediately if document data is available  
-- Complex gap analysis: May need 1-2 analysis steps to examine requirements thoroughly
-- Multi-jurisdictional gaps: Require MCP calls for specific regulations/laws
-- Focus on detection and reasoning, NOT implementation advice
-
-MCP EFFICIENCY RULES - MANDATORY:
-- If an MCP search returns no results, try ONE different search strategy max
-- Don't make multiple similar MCP calls - vary search terms or approach significantly  
-- If document ID searches fail, try semantic searches with different keywords
-- After 2 failed MCP attempts, IMMEDIATELY proceed with analysis based on available information
-- STOP making MCP calls if results are irrelevant (e.g., getting social media laws when searching for GDPR)
-- If Legal MCP returns only "Digital Services Act" or social media content for GDPR searches, STOP and proceed to analysis
-- Do NOT make more than 3 total MCP calls per workflow - this is inefficient and wastes tokens
-
-DOCUMENT PROCESSING WORKFLOW - MANDATORY:
-1. For documents uploaded <5 minutes ago, ALWAYS check status FIRST using check_requirements_document_status
-2. If status is "processing": 
-   - Immediately inform user: "🔄 Generating embeddings for your document... This may take 30-60 seconds."
-   - Wait 30 seconds, then check status again
-   - Repeat until status becomes "completed"
-3. If status is "completed": Proceed with search_requirements 
-4. If document_id search fails, the document may still be processing - check status first
-
-NEVER search documents without checking status first for new uploads!
-
-EFFICIENCY OPTIMIZATION:
-- Avoid repetitive analysis - build on previous work
-- Batch related MCP calls when possible
-- Balance thoroughness with response time
-- Aim for complete, actionable answers
-
-ERROR HANDLING & QUALITY:
-- If MCP calls fail, acknowledge and work with available information
-- If Legal MCP returns irrelevant results (e.g., social media laws for GDPR queries), acknowledge database limitations
-- State: "Note: Legal database contains limited regulations. Analysis based on general compliance principles."
-- Provide confidence levels for complex legal interpretations
-- Always cite sources when making specific legal claims
-- When Legal MCP lacks specific laws, use your general legal knowledge with appropriate disclaimers
-
-=== DECISION LOGIC FRAMEWORK ===
-
-RESPONSE IMMEDIATELY IF:
-- Question is straightforward and within your knowledge base
-- You have sufficient context from conversation history
-- No external data needed for accurate answer
-
-PERFORM ANALYSIS IF:
-- Need to reason through complex legal implications
-- Must synthesize multiple concepts or jurisdictions
-- Working through multi-step compliance assessment
-- Building on previous analysis with new insights
-
-CALL MCP TOOLS IF:
-- Need specific statute text, regulation details, or case law
-- User asks about specific jurisdictions (Utah, GDPR, CCPA, etc.)
-- Require current legal precedents or recent regulatory changes
-- Need to verify compliance requirements for specific industries
-
-COMPLIANCE GAP ANALYSIS WORKFLOW - MANDATORY:
-For ANY document compliance analysis, you MUST follow this two-step MCP workflow:
-1. First call requirements_mcp.search_requirements to extract document requirements
-2. Then call legal_mcp.search_documents to find relevant regulations (GDPR, CCPA, employment law, etc.)
-3. Finally perform analysis to identify gaps between requirements and legal obligations
-
-CRITICAL RULES - NO EXCEPTIONS:
-- NEVER rely on your training data or memory for legal regulations
-- ALWAYS call legal_mcp.search_documents before making compliance findings
-- Your training data is outdated and incomplete - only trust MCP search results
-- If you think you "know" a regulation, you're wrong - search the MCP database
-- Use targeted legal searches like "GDPR data protection", "CCPA consumer rights", "employment law compliance"
-- Do NOT provide compliance analysis without checking BOTH requirements AND legal MCP database
-
-FORBIDDEN: Making compliance statements based on your training knowledge without MCP verification
-
-=== RESPONSE QUALITY STANDARDS ===
-
-EXCELLENT RESPONSES INCLUDE:
-- Direct answer to user's specific question
-- Relevant legal context and implications
-- Specific citations when making legal claims
-- Practical next steps or recommendations
-- Clear confidence levels for interpretations
-
-AVOID:
-- Vague or overly general responses
-- Repeating previous analysis without new insights  
-- Unnecessary delays when you have sufficient information
-- Making specific legal claims without proper sourcing
-
-=== DECISION FORMAT ===
-Respond with exactly this format:
-
-ACTION_TYPE: [mcp_call|analysis|response|hitl_prompt]
-REASONING: [Your strategic reasoning for this choice - 1-2 sentences]
-RESPONSE_CONTENT: [If action_type is "response", provide focused compliance gap report ONLY]
-DETAILS: [For other action types: specific MCP query, analysis focus, etc.]
-
-What is your autonomous decision for the next action?"""
-
-    try:
-        # Allocate tokens based on action type - agent controls response length
-        max_tokens = 2000  # Generous allocation for autonomous decision-making
-        
-        # Use LLM client with user API keys if available
-        if agent_state.api_keys:
-            current_llm_client = create_llm_client(agent_state.api_keys)
-        else:
-            current_llm_client = llm_client
-        
-        response = await current_llm_client.complete(
-            system_prompt,
-            max_tokens=max_tokens,
-            temperature=0.1
-        )
-        
-        content = response.get("content", "").strip()
-        logger.info(f"🧠 Agent decision: {content[:200]}...")
-        
-        # Parse agent decision with robust parsing - handle multi-line content
-        action_type = None
-        reasoning = ""
-        details = {}
-        response_content = ""
-        
-        # Improved parsing method to handle multi-line RESPONSE_CONTENT
-        lines = content.split('\n')
-        i = 0
-        while i < len(lines):
-            line = lines[i].strip()
-            if line.startswith("ACTION_TYPE:"):
-                action_type = line.replace("ACTION_TYPE:", "").strip()
-            elif line.startswith("REASONING:"):
-                reasoning = line.replace("REASONING:", "").strip()
-            elif line.startswith("RESPONSE_CONTENT:"):
-                # Handle multi-line response content
-                response_lines = []
-                first_line_content = line.replace("RESPONSE_CONTENT:", "").strip()
-                if first_line_content:
-                    response_lines.append(first_line_content)
-                
-                # Continue reading lines until we hit another field or end of content
-                i += 1
-                while i < len(lines):
-                    next_line = lines[i].strip()
-                    if (next_line.startswith("DETAILS:") or 
-                        next_line.startswith("ACTION_TYPE:") or 
-                        next_line.startswith("REASONING:")):
-                        i -= 1  # Step back so outer loop processes this line
-                        break
-                    if next_line:  # Only add non-empty lines
-                        response_lines.append(next_line)
-                    i += 1
-                
-                response_content = "\n".join(response_lines).strip()
-                logger.info(f"🔍 Parsed multi-line response_content: {response_content[:300]}...")
-            elif line.startswith("DETAILS:"):
-                details_str = line.replace("DETAILS:", "").strip()
-                details = {"description": details_str}
-            i += 1
-        
-        # Normalize MCP-related action types
-        if action_type in ["legal_mcp", "requirements_mcp"]:
-            original_action = action_type
-            action_type = "mcp_call"
-            reasoning = f"Normalized {original_action} to mcp_call"
-        
-        # Fallback parsing - look for action types anywhere in the text
-        if not action_type or action_type not in ["mcp_call", "analysis", "response", "hitl_prompt"]:
-            content_lower = content.lower()
-            if "mcp_call" in content_lower or "legal_mcp" in content_lower or "requirements_mcp" in content_lower:
-                action_type = "mcp_call"
-                reasoning = "Fallback: Detected MCP call in response"
-            elif "analysis" in content_lower and analysis_count < 3:  # Allow max 3 analysis steps
-                action_type = "analysis"
-                reasoning = "Fallback: Detected analysis request"
-            elif "response" in content_lower or analysis_count >= 3:
-                action_type = "response"
-                reasoning = "Fallback: Ready to provide response"
-            else:
-                # Last resort - default to response after multiple analysis attempts
-                action_type = "response"
-                reasoning = "Fallback: Defaulting to response after multiple reasoning steps"
-                
-            details = {"description": content[:100]}
-        
-        if not action_type:
-            logger.warning(f"❌ Could not determine action type from: {content[:200]}")
-            return None
-            
-        # Determine if approval needed
-        requires_approval = action_type == "mcp_call"
-        
-        # Record reasoning step with timing
-        decision_duration = (datetime.now() - decision_start).total_seconds()
-        agent_state.reasoning_steps.append(ReasoningStep(
-            type="llm_decision",
-            content=f"Decided to {action_type}: {reasoning}",
-            duration=decision_duration,
-            timestamp=datetime.now().isoformat()
-        ))
-        
-        return AgentAction(
-            action_type=action_type,
-            details={
-                "reasoning": reasoning,
-                "description": details.get("description", ""),
-                "response_content": response_content,  # Store the actual response content for response actions
-                "raw_response": content
-            },
-            requires_approval=requires_approval
-        )
+        logger.info(f"✅ Enhanced persistent chat agent completed for session {session_id}")
         
     except Exception as e:
-        logger.error(f"❌ Agent decision failed: {e}")
-        return None
+        logger.error(f"❌ Enhanced persistent chat agent failed for {session_id}: {e}")
+        
+        # Update agent state and workflows for error handling
+        if session_id in agent_sessions:
+            agent_sessions[session_id].status = "error"
+        
+        active_workflows[session_id] = {
+            "id": session_id,
+            "status": "error",
+            "error": f"Enhanced persistent chat error: {str(e)}",
+            "completed_at": datetime.now().isoformat()
+        }
 
-async def _llm_decide_mcp_tool(session_id: str, action: AgentAction) -> Optional[Dict[str, str]]:
+# OLD AUTONOMOUS AGENT CODE REMOVED - Now using enhanced LawyerAgent with configurable prompts
+
+# The following functions have been deprecated and replaced by enhanced LawyerAgent:
+# - _run_autonomous_agent() -> _run_enhanced_autonomous_agent() 
+# - _run_persistent_chat_agent() -> _run_enhanced_persistent_chat_agent()
+# - _agent_decide_next_action() -> LawyerAgent.run_autonomous_workflow()
+# - _agent_execute_mcp_call() -> LawyerAgent MCP integration
+
+
+# OLD AGENT HELPER FUNCTIONS REMOVED - All functionality moved to enhanced LawyerAgent
+
+# Removed functions:
+# - _llm_decide_mcp_tool() 
+# - _agent_execute_mcp_call()
+# - _agent_perform_analysis() 
+# - _agent_send_final_response()
+# - _agent_send_mcp_approval_prompt()
+# - _agent_send_hitl_prompt()
+# - _agent_continue_after_hitl()
+# - _resume_autonomous_agent_locked()
+# - _execute_approved_mcp_call()
+
+async def _deprecated_llm_decide_mcp_tool(session_id: str, action: AgentAction) -> Optional[Dict[str, str]]:
     """
-    100% LLM-orchestrated MCP tool selection - NO HARDCODING
+    DEPRECATED: 100% LLM-orchestrated MCP tool selection - NO HARDCODING
     """
     
     agent_state = agent_sessions[session_id]

@@ -7,9 +7,9 @@ import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { useDocumentStore } from '@/lib/stores'
-import { getDocuments, startBulkRequirementsAnalysis, startBulkLegalAnalysis, getBatchJobStatus, getDocumentReport, exportReports, deleteDocument } from '@/lib/api'
+import { getDocuments, startBulkRequirementsAnalysis, startBulkLegalAnalysis, getBatchJobStatus, getDocumentReport, deleteDocument } from '@/lib/api'
 import { Document } from '@/lib/types'
-import { BookOpen, Search, Trash2, Download, Zap, FileText, Eye, RefreshCw } from 'lucide-react'
+import { BookOpen, Trash2, Zap, FileText, Eye, RefreshCw } from 'lucide-react'
 
 export default function DocumentLibrary() {
   const [documents, setDocuments] = useState<Document[]>([])
@@ -23,7 +23,7 @@ export default function DocumentLibrary() {
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false)
   const [rerunningDocuments, setRerunningDocuments] = useState<Set<string>>(new Set())
   const [isDeleting, setIsDeleting] = useState(false)
-  const [isExporting, setIsExporting] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
 
   useEffect(() => {
     const loadDocuments = async () => {
@@ -190,43 +190,16 @@ export default function DocumentLibrary() {
     }
   }
   
-  const handleExportReports = async () => {
-    const reportIds = selectedDocs
-      .map(docId => documentReports[docId]?.id)
-      .filter(Boolean)
-    
-    if (reportIds.length === 0) {
-      alert('No reports available for selected documents')
-      return
-    }
-    
-    setIsExporting(true)
-    try {
-      const blob = await exportReports(reportIds, 'csv')
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `compliance-reports-${new Date().toISOString().split('T')[0]}.csv`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-    } catch (error) {
-      console.error('Failed to export reports:', error)
-      alert('Failed to export reports. Please try again.')
-    } finally {
-      setIsExporting(false)
+  
+
+  const handleDeleteConfirmation = () => {
+    if (selectedDocs.length > 0) {
+      setIsDeleteDialogOpen(true)
     }
   }
 
   const handleDeleteDocuments = async () => {
     if (selectedDocs.length === 0) return
-
-    const confirmed = window.confirm(
-      `Are you sure you want to delete ${selectedDocs.length} document${selectedDocs.length > 1 ? 's' : ''}? This action cannot be undone.`
-    )
-    
-    if (!confirmed) return
 
     setIsDeleting(true)
     try {
@@ -246,6 +219,7 @@ export default function DocumentLibrary() {
       alert('Failed to delete documents. Please try again.')
     } finally {
       setIsDeleting(false)
+      setIsDeleteDialogOpen(false)
     }
   }
   
@@ -422,27 +396,14 @@ export default function DocumentLibrary() {
                   <span className="text-sm text-gray-600">
                     {selectedDocs.length} selected
                   </span>
-                  <Button size="sm">
-                    <Search className="w-4 h-4 mr-2" />
-                    Bulk Compliance Check
-                  </Button>
                   <Button 
                     variant="outline" 
                     size="sm"
                     disabled={selectedDocs.length === 0 || isDeleting}
-                    onClick={handleDeleteDocuments}
+                    onClick={handleDeleteConfirmation}
                   >
                     <Trash2 className="w-4 h-4 mr-2" />
                     {isDeleting ? 'Deleting...' : 'Delete'}
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    disabled={selectedDocs.length === 0 || isExporting}
-                    onClick={handleExportReports}
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    {isExporting ? 'Exporting...' : 'Export'}
                   </Button>
                 </div>
               )}
@@ -546,59 +507,7 @@ export default function DocumentLibrary() {
           </CardContent>
         </Card>
 
-        {/* Quick Actions */}
-        <Card className="bg-white">
-          <CardHeader>
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <Zap className="w-5 h-5 mr-2" />
-              Bulk Operations
-            </h2>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 border rounded-lg">
-                <h3 className="font-medium text-gray-900 mb-2">Requirements Analysis</h3>
-                <p className="text-sm text-gray-600 mb-3">
-                  Check selected requirements docs against {selectedLegalDocs.length > 0 ? 'selected' : 'all'} legal docs ({selectedRequirementDocs.length} req docs selected)
-                </p>
-                <Button 
-                  disabled={selectedRequirementDocs.length === 0}
-                  onClick={handleBulkRequirementsAnalysis}
-                  size="sm"
-                >
-                  Run Analysis
-                </Button>
-              </div>
-              <div className="p-4 border rounded-lg">
-                <h3 className="font-medium text-gray-900 mb-2">Legal Document Review</h3>
-                <p className="text-sm text-gray-600 mb-3">
-                  Check selected legal docs against {selectedRequirementDocs.length > 0 ? 'selected' : 'all'} requirements ({selectedLegalDocs.length} legal docs selected)
-                </p>
-                <Button 
-                  disabled={selectedLegalDocs.length === 0}
-                  onClick={handleBulkLegalAnalysis}
-                  size="sm"
-                >
-                  Run Review
-                </Button>
-              </div>
-              <div className="p-4 border rounded-lg">
-                <h3 className="font-medium text-gray-900 mb-2">Export Reports</h3>
-                <p className="text-sm text-gray-600 mb-3">
-                  Export compliance reports (CSV/JSON) - {Object.keys(documentReports).filter(id => selectedDocs.includes(id)).length} reports available
-                </p>
-                <Button 
-                  disabled={selectedDocs.length === 0 || isExporting}
-                  onClick={handleExportReports}
-                  variant="outline" 
-                  size="sm"
-                >
-                  {isExporting ? 'Exporting...' : 'Export'}
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        
 
         {/* Report Dialog */}
         <Dialog open={isReportDialogOpen} onOpenChange={setIsReportDialogOpen}>
@@ -670,6 +579,24 @@ export default function DocumentLibrary() {
                 </div>
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Are you sure?</DialogTitle>
+            </DialogHeader>
+            <div className="py-4">
+              <p>You are about to delete {selectedDocs.length} document{selectedDocs.length > 1 ? 's' : ''}. This action cannot be undone.</p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={handleDeleteDocuments} disabled={isDeleting}>
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
       </div>

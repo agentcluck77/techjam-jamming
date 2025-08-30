@@ -13,7 +13,6 @@ const navigationItems = [
   { href: '/legal-documents', label: 'Legal Documents', icon: Building },
   { href: '/document-library', label: 'Document Library', icon: BookOpen },
   { href: '/knowledge-base', label: 'Knowledge Base', icon: Brain },
-  { href: '/results', label: 'Results History', icon: BarChart3 },
 ]
 
 export function Navigation() {
