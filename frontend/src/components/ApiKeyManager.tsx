@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Eye, EyeOff, Key, Settings } from 'lucide-react'
 import { toast } from 'sonner'
-import { useApiKeyStore } from '@/lib/stores'
+import { useApiKeyStore, useWorkflowStore } from '@/lib/stores'
 
 export type ApiKeyType = 'anthropic' | 'openai' | 'google'
 
@@ -25,6 +25,7 @@ interface ApiKeyManagerProps {
 
 export default function ApiKeyManager({ children }: ApiKeyManagerProps) {
   const { apiKeys, setApiKeys, hasValidApiKeys } = useApiKeyStore()
+  const { setApiKeys: setWorkflowApiKeys } = useWorkflowStore()
   const [showKeys, setShowKeys] = useState<Record<ApiKeyType, boolean>>({
     anthropic: false,
     openai: false,
@@ -40,11 +41,15 @@ export default function ApiKeyManager({ children }: ApiKeyManagerProps) {
       google: localStorage.getItem('google_api_key') || ''
     }
     setApiKeys(savedKeys)
+    // CRITICAL FIX: Also set in workflow store for document analysis
+    setWorkflowApiKeys(savedKeys)
   }, [])
 
   const handleKeyChange = (keyType: ApiKeyType, value: string) => {
     const updatedKeys = { ...apiKeys, [keyType]: value }
     setApiKeys(updatedKeys)
+    // CRITICAL FIX: Also update workflow store for document analysis
+    setWorkflowApiKeys(updatedKeys)
     
     // Save to localStorage
     if (value) {

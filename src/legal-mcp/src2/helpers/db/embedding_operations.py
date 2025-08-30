@@ -19,7 +19,7 @@ def get_embedding_model():
     global _model
     if _model is None:
         try:
-            _model = SentenceTransformer('all-MiniLM-L6-v2')
+            _model = SentenceTransformer('all-MiniLM-L6-v2', cache_folder='/app/.sentence_transformers_cache')
             logger.info("Embedding model initialized")
         except Exception as e:
             logger.error(f"Failed to initialize embedding model: {e}")

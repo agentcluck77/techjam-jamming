@@ -348,6 +348,8 @@ export function HITLSidebar({ onWidthChange, apiKeys }: HITLSidebarProps = {}) {
             }
           }
           
+          const autoAnalysisApiKeys = JSON.parse(sessionStorage.getItem('autoAnalysisApiKeys') || '{}')
+
           // NOW start the agent
           console.log('🤖 Starting agent analysis...')
           
@@ -384,7 +386,7 @@ export function HITLSidebar({ onWidthChange, apiKeys }: HITLSidebarProps = {}) {
                 message: autoAnalysisPrompt, 
                 context: 'Auto-triggered compliance analysis',
                 chat_id: selectedChat?.id,
-                api_keys: apiKeys
+                api_keys: autoAnalysisApiKeys
               })
             })
             

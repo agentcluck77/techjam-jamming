@@ -9,12 +9,15 @@ import uuid
 import json
 import re
 import asyncio
+import logging
 from pydantic import BaseModel
 
 from ..models import JurisdictionAnalysis, FeatureAnalysisResponse, UserQueryResponse
 from .real_mcp_client import RealMCPClient
 from ..llm_service import llm_client
 from ..config_manager import get_system_prompt, get_knowledge_base
+
+logger = logging.getLogger(__name__)
 
 # Import workflow classes for autonomous operation
 class AgentAction(BaseModel):
@@ -1318,6 +1321,7 @@ Return ONLY: true or false"""
         
         # Initialize session state
         if session_id not in self.active_sessions:
+            logger.info(f"🔑 LawyerAgent initializing with API keys: {bool(api_keys)} (keys: {list(api_keys.keys()) if api_keys else 'None'})")
             self.active_sessions[session_id] = AutonomousAgentState(
                 session_id=session_id,
                 conversation_history=[{"role": "user", "content": user_message}],
@@ -1437,6 +1441,24 @@ Return ONLY: true or false"""
             if step.type == "llm_decision" and "analysis" in step.content.lower()
         ])
         
+        # Count recent MCP calls to prevent rapid duplicates
+        recent_mcp_calls = len([
+            step for step in state.reasoning_steps[-3:] 
+            if step.type == "mcp_call"
+        ])
+        
+        # Check if we just executed an MCP call (within last 5 seconds)
+        recent_mcp_execution = False
+        if state.reasoning_steps:
+            last_step = state.reasoning_steps[-1]
+            if last_step.type == "mcp_call":
+                try:
+                    last_time = datetime.fromisoformat(last_step.timestamp)
+                    time_diff = (datetime.now() - last_time).total_seconds()
+                    recent_mcp_execution = time_diff < 5.0
+                except:
+                    recent_mcp_execution = False
+        
         # Use configurable system prompt and knowledge base
         system_prompt = get_system_prompt()
         knowledge_base = get_knowledge_base()
@@ -1459,6 +1481,8 @@ STATE ANALYSIS:
 - Analysis decisions made: {analysis_count}
 - Tool calls made: {len(state.tool_results)}
 - MCP calls made: {state.mcp_sent_count} (limit: 5 per session)
+- Recent MCP calls: {recent_mcp_calls}
+- Just executed MCP: {"Yes" if recent_mcp_execution else "No"}
 
 Knowledge Base:
 {knowledge_base}
@@ -1470,6 +1494,13 @@ ACTION_TYPE: [mcp_call|analysis|response|hitl_prompt]
 REASONING: [Your strategic reasoning for this choice - 1-2 sentences]
 RESPONSE_CONTENT: [If action_type is "response", provide focused compliance gap report ONLY]
 DETAILS: [For other action types: specific MCP query, analysis focus, etc.]
+
+=== WORKFLOW PROGRESSION RULES ===
+- mcp_call: Use when you need MORE information (requirements OR legal rules)
+- analysis: Use when you have BOTH requirements AND legal context to analyze
+- response: Use when analysis is COMPLETE and ready to provide final compliance report
+- AVOID: Repeating similar MCP calls - move to next workflow step
+- If "Just executed MCP: Yes", prefer analysis or response over another mcp_call
 
 What is your autonomous decision for the next action?"""
 
@@ -1603,6 +1634,16 @@ What is your autonomous decision for the next action?"""
         mcp_details = await self._determine_mcp_tool(session_id, action)
         if not mcp_details:
             return
+        
+        # Store the pending MCP action for execution after approval
+        state = self.active_sessions[session_id]
+        state.pending_mcp_decision = {
+            "action": "mcp_call",
+            "tool": mcp_details["tool"],
+            "query": mcp_details["query"],
+            "reasoning": mcp_details["reasoning"],
+            "original_action": action.dict()  # Store full action details
+        }
             
         approval_prompt = {
             "type": "mcp_approval",
@@ -1645,24 +1686,31 @@ What is your autonomous decision for the next action?"""
 === PREVIOUS MCP CALLS ===
 {tool_results_context}
 
+=== WORKFLOW GUIDANCE ===
+1. FIRST: Use requirements_mcp to extract document requirements (if not done)
+2. THEN: Use legal_mcp to check requirements against specific jurisdictions
+3. AVOID: Repeating the same MCP tool with similar queries
+
 === AVAILABLE TOOLS ===
 REQUIREMENTS MCP TOOLS:
 - Tool: requirements_mcp
 - For document content: Use query "document_id:UUID extract requirements"
 - For semantic search: Use query "your search terms"
+- Use ONCE per document to extract requirements
 
 LEGAL MCP TOOLS:
 - Tool: legal_mcp  
-- For semantic search: Use query "your legal search terms"
-- Example: "GDPR data protection requirements"
+- For compliance checking: Use query "Utah compliance [requirement type]"
+- Example: "Utah social media user data requirements"
+- Use AFTER you have requirements to check compliance
 
 === DECISION FORMAT ===
 TOOL: [legal_mcp|requirements_mcp]
 QUERY: [your specific search query]
 REASONING: [brief 10-word reason for tool choice]
 
-Make your decision based purely on context and reasoning - no keyword matching allowed.
-KEEP REASONING BRIEF: Maximum 10 words explaining your choice."""
+IMPORTANT: If you already extracted requirements, use legal_mcp for compliance checking.
+Make your decision based on workflow progression and previous calls."""
 
         try:
             # Use user's API keys if provided
@@ -1720,10 +1768,26 @@ KEEP REASONING BRIEF: Maximum 10 words explaining your choice."""
         try:
             # Call appropriate MCP
             if mcp_details["tool"] == "requirements_mcp":
-                result = await self.mcp_client.call_tool("search_requirements", {
-                    "search_type": "semantic",
-                    "query": mcp_details["query"]
-                })
+                # Parse query for document ID extraction  
+                query = mcp_details["query"]
+                if query.startswith("document_id:"):
+                    # Extract document ID for metadata search
+                    parts = query.split(" ", 1)
+                    doc_id = parts[0].replace("document_id:", "")
+                    search_query = parts[1] if len(parts) > 1 else "extract requirements"
+                    
+                    result = await self.mcp_client.call_tool("search_requirements", {
+                        "search_type": "metadata",
+                        "document_id": doc_id,
+                        "query": search_query
+                    })
+                else:
+                    # Regular semantic search
+                    result = await self.mcp_client.call_tool("search_requirements", {
+                        "search_type": "semantic",
+                        "query": query
+                    })
+                    
             elif mcp_details["tool"] == "legal_mcp":
                 result = await self.mcp_client.call_tool("search_legal_documents", {
                     "search_type": "semantic",
@@ -1766,6 +1830,84 @@ KEEP REASONING BRIEF: Maximum 10 words explaining your choice."""
             
         except Exception as e:
             print(f"❌ MCP execution failed: {e}")
+    
+    async def _execute_pending_mcp_call(self, session_id: str):
+        """Execute the pending MCP call that was approved by user"""
+        state = self.active_sessions[session_id]
+        
+        if not state.pending_mcp_decision:
+            return
+        
+        mcp_details = state.pending_mcp_decision
+        execution_start = datetime.now()
+        
+        try:
+            # Call appropriate MCP using the stored details
+            if mcp_details["tool"] == "requirements_mcp":
+                # Parse query for document ID extraction
+                query = mcp_details["query"]
+                if query.startswith("document_id:"):
+                    # Extract document ID for metadata search
+                    parts = query.split(" ", 1)
+                    doc_id = parts[0].replace("document_id:", "")
+                    search_query = parts[1] if len(parts) > 1 else "extract requirements"
+                    
+                    result = await self.mcp_client.call_tool("search_requirements", {
+                        "search_type": "metadata", 
+                        "document_id": doc_id,
+                        "query": search_query
+                    })
+                else:
+                    # Regular semantic search
+                    result = await self.mcp_client.call_tool("search_requirements", {
+                        "search_type": "semantic",
+                        "query": query
+                    })
+                    
+            elif mcp_details["tool"] == "legal_mcp":
+                result = await self.mcp_client.call_tool("search_legal_documents", {
+                    "search_type": "semantic",
+                    "query": mcp_details["query"]
+                })
+            else:
+                result = {"error": f"Unknown MCP tool: {mcp_details['tool']}"}
+            
+            execution_time = (datetime.now() - execution_start).total_seconds()
+            
+            # Store result for context
+            state.tool_results.append({
+                "tool": mcp_details["tool"],
+                "query": mcp_details["query"],
+                "result": result,
+                "execution_time": execution_time
+            })
+            
+            # Store MCP execution for frontend display
+            results_count = len(result.get("results", [])) if isinstance(result, dict) else 0
+            state.mcp_executions_for_chat.append({
+                "tool": mcp_details["tool"],
+                "query": mcp_details["query"],
+                "results_count": results_count,
+                "execution_time": execution_time,
+                "result_summary": f"Found {results_count} results" if results_count > 0 else "No results",
+                "timestamp": datetime.now().isoformat(),
+                "raw_results": result
+            })
+            
+            state.mcp_sent_count += 1
+            
+            # Add reasoning step
+            state.reasoning_steps.append(ReasoningStep(
+                type="mcp_call",
+                content=f"Executed {mcp_details['tool']}: {mcp_details['query']}",
+                duration=execution_time,
+                timestamp=datetime.now().isoformat()
+            ))
+            
+            print(f"✅ MCP call executed successfully: {mcp_details['tool']} - {results_count} results")
+            
+        except Exception as e:
+            print(f"❌ Pending MCP execution failed: {e}")
     
     async def _perform_analysis(self, session_id: str, action: AgentAction):
         """Perform legal analysis using configurable prompts"""
@@ -1887,7 +2029,24 @@ Focus on detection and reasoning only."""
             return None
             
         state = self.active_sessions[session_id]
+        
+        # Check if this is a response to a pending MCP decision
+        executed_mcp = False
+        if state.pending_mcp_decision and response.lower() == "approve":
+            # Execute the pending MCP call
+            await self._execute_pending_mcp_call(session_id)
+            # Clear the pending decision
+            state.pending_mcp_decision = None
+            executed_mcp = True
+        elif state.pending_mcp_decision and response.lower() in ["skip", "reject"]:
+            # Skip the MCP call - clear pending decision
+            state.pending_mcp_decision = None
+        
         state.status = "active"  # Resume from waiting_hitl
+        
+        # Add a brief pause if we just executed an MCP call to let results settle
+        if executed_mcp:
+            await asyncio.sleep(0.1)
         
         # Continue workflow loop
         async with self.session_locks[session_id]:

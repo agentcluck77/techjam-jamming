@@ -81,6 +81,9 @@ services:
       - DB_USER=user
       - DB_PASSWORD=password
       - LOG_LEVEL=INFO
+      - SENTENCE_TRANSFORMERS_HOME=/app/cache/sentence_transformers
+      - TRANSFORMERS_CACHE=/app/cache/transformers
+      - HF_HOME=/app/cache/hf
     depends_on:
       postgres:
         condition: service_healthy
@@ -94,6 +97,8 @@ services:
     volumes:
       # Mount legal documents directory if needed
       - ./src/legal-mcp/infodump:/app/src/legal-mcp/infodump:ro
+      # Mount cache directory for sentence transformers
+      - legal_mcp_cache:/app/cache
 
   # Requirements MCP Service - Real functional implementation
   requirements-mcp:
@@ -145,6 +150,7 @@ services:
 volumes:
   postgres_data:
   requirements_chroma_data:
+  legal_mcp_cache:
 
 networks:
   default:

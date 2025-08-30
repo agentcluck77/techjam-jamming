@@ -33,7 +33,7 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
   const [showJurisdictionPrompt, setShowJurisdictionPrompt] = useState(false)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const { addDocument, addUploadProgress, updateUploadProgress, removeUploadProgress } = useDocumentStore()
-  const { setSidebarOpen } = useWorkflowStore()
+  const { setSidebarOpen, apiKeys } = useWorkflowStore()
 
   // Common jurisdictions for quick selection (for legal documents)
   const commonJurisdictions = [
@@ -82,16 +82,20 @@ Please:
 
 Use the requirements MCP to search and analyze the full document content.`
 
-    // Store the prompt in sessionStorage for the sidebar to pick up
+    // Store the prompt AND API keys in sessionStorage for the sidebar to pick up
     console.log('💾 Storing auto-analysis prompt in sessionStorage...')
     console.log('📝 Prompt:', autoPrompt)
+    console.log('🔑 API Keys available:', Object.keys(apiKeys))
     sessionStorage.setItem('autoAnalysisPrompt', autoPrompt)
     sessionStorage.setItem('autoAnalysisTriggered', 'true')
+    // CRITICAL FIX: Store API keys for HITL sidebar to use
+    sessionStorage.setItem('autoAnalysisApiKeys', JSON.stringify(apiKeys))
     
     // Verify storage
     console.log('✅ sessionStorage set:', {
       autoAnalysisTriggered: sessionStorage.getItem('autoAnalysisTriggered'),
-      hasPrompt: !!sessionStorage.getItem('autoAnalysisPrompt')
+      hasPrompt: !!sessionStorage.getItem('autoAnalysisPrompt'),
+      hasApiKeys: !!sessionStorage.getItem('autoAnalysisApiKeys')
     })
     
     console.log('📡 Dispatching auto-analysis event...')

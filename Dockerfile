@@ -47,13 +47,21 @@ RUN uv pip install --system --no-cache \
     "typing-extensions>=4.11.0" \
     "cryptography>=42.0.0" \
     "python-jose[cryptography]>=3.3.0" \
-    "prometheus-client>=0.19.0"
+    "prometheus-client>=0.19.0" \
+    "sentence-transformers>=2.2.2" \
+    "transformers[sentencepiece]>=4.21.0" \
+    "sentencepiece>=0.1.97" \
+    "numpy>=1.24.0" \
+    "chromadb>=0.4.0" \
+    "PyPDF2>=3.0.1" \
+    "aiofiles>=23.2.1"
 
 # Copy application code
 COPY . .
 
-# Create non-root user for security (Debian uses useradd)
+# Create cache directories and non-root user for security
 RUN useradd -r -s /bin/bash -m -d /home/app app && \
+    mkdir -p /app/cache/sentence_transformers /app/cache/transformers /app/cache/hf /app/.cache && \
     chown -R app:app /app && \
     chmod +x scripts/setup_db.py && \
     chmod +x start.sh

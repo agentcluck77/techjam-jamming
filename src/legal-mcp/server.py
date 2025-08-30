@@ -36,18 +36,18 @@ import asyncpg
 from sentence_transformers import SentenceTransformer
 import numpy as np
 
-# Local imports - adjust path to your existing helpers
-import sys
-import os
-
-# Add the legal-mcp source to path for imports
-current_dir = os.path.dirname(os.path.abspath(__file__))
-src2_path = os.path.join(current_dir, 'src2')
-sys.path.insert(0, src2_path)
-
-from helpers.db.common_queries import CommonQueries, Definitions, Regulations
-from helpers.lawer_agent.get_regulation import get_region_regulation_details
-from helpers.lawer_agent.get_definition import get_definition
+# Local imports - TEMPORARILY DISABLED TO DEBUG SENTENCE TRANSFORMER ISSUE
+# import sys
+# import os
+# 
+# # Add the legal-mcp source to path for imports
+# current_dir = os.path.dirname(os.path.abspath(__file__))
+# src2_path = os.path.join(current_dir, 'src2')
+# sys.path.insert(0, src2_path)
+# 
+# from helpers.db.common_queries import CommonQueries, Definitions, Regulations
+# from helpers.lawer_agent.get_regulation import get_region_regulation_details
+# from helpers.lawer_agent.get_definition import get_definition
 
 # Configure logging first
 logging.basicConfig(level=logging.INFO)
@@ -70,15 +70,10 @@ DB_NAME = os.environ.get("DB_NAME", "postgres")
 DB_USER = os.environ.get("DB_USER", "postgres")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "postgres")
 
-# Load the sentence transformer model for embeddings
+# Load the sentence transformer model - EXACT COPY from working requirements MCP
 try:
-    import os
-    # Create cache directory if it doesn't exist
-    cache_dir = os.path.join(os.getcwd(), '.sentence_transformers_cache')
-    os.makedirs(cache_dir, exist_ok=True)
-    
-    model = SentenceTransformer('all-MiniLM-L6-v2', cache_folder=cache_dir)
-    logger.info("Sentence transformer model loaded successfully")
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    logger.info("✅ Sentence transformer model loaded successfully")
 except Exception as e:
     logger.warning(f"Failed to load sentence transformer model: {e}")
     model = None
