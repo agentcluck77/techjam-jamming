@@ -593,10 +593,10 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
 
           <DialogFooter>
             <Button variant="outline" onClick={() => handleLibraryResponse(false)}>
-              Skip - Just Run Analysis
+              Analysis Only
             </Button>
             <Button onClick={() => handleLibraryResponse(true)}>
-              Add to Library
+              Analyse and Add to Library
             </Button>
           </DialogFooter>
           

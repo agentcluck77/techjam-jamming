@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { Progress } from '@/components/ui/progress'
+
 import { Card, CardHeader, CardContent } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
@@ -177,7 +177,11 @@ function MCPOutputToggle({ result, messageId }: { result: any, messageId: string
   )
 }
 
-export function HITLSidebar() {
+interface HITLSidebarProps {
+  onWidthChange?: (width: number, open: boolean) => void
+}
+
+export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
   const { sidebarOpen, progress, setSidebarOpen, currentWorkflow, setProgress, setHitlPrompt, setCurrentWorkflow } = useWorkflowStore()
   const { hitlPrompt, isResponding, respond } = useHITL()
   const [selectedOption, setSelectedOption] = useState<string | null>(null)
@@ -266,6 +270,11 @@ export function HITLSidebar() {
     setIsResizing(true)
     e.preventDefault()
   }
+
+  // Notify parent of width changes
+  useEffect(() => {
+    onWidthChange?.(sidebarWidth, sidebarOpen)
+  }, [sidebarWidth, sidebarOpen, onWidthChange])
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -799,24 +808,48 @@ export function HITLSidebar() {
 
   return (
     <div 
-      className="fixed right-0 top-0 h-full bg-white border-l border-gray-200 shadow-lg z-50 flex flex-col"
-      style={{ width: `${sidebarWidth}px` }}
+      className="fixed right-0 top-0 h-full bg-white border-l border-gray-200 shadow-lg z-40 flex flex-col"
+      style={{ 
+        width: `${sidebarWidth}px`,
+        transform: sidebarOpen ? 'translateX(0)' : 'translateX(100%)',
+        transition: isResizing ? 'none' : 'transform 200ms ease-in-out'
+      }}
     >
       {/* Resize Handle */}
       <div
-        className="absolute left-0 top-0 w-1 h-full cursor-col-resize hover:bg-blue-200 active:bg-blue-300 transition-colors"
+        className="absolute left-0 top-0 w-2 h-full cursor-col-resize group z-10"
         onMouseDown={handleMouseDown}
-        style={{ 
-          backgroundColor: isResizing ? '#93c5fd' : 'transparent',
-          zIndex: 10
-        }}
-      />
-      
-      {/* Resize Handle Visual Indicator */}
-      <div
-        className="absolute left-0 top-1/2 transform -translate-y-1/2 w-1 h-12 bg-gray-300 rounded-r opacity-0 hover:opacity-100 transition-opacity pointer-events-none"
-        style={{ left: '-2px' }}
-      />
+        style={{ left: '-1px' }}
+      >
+        {/* Active resize area */}
+        <div 
+          className={`w-full h-full transition-colors ${
+            isResizing 
+              ? 'bg-blue-400' 
+              : 'bg-transparent hover:bg-blue-200'
+          }`}
+        />
+        
+        {/* Visual indicator */}
+        <div className={`
+          absolute left-1 top-1/2 transform -translate-y-1/2 
+          w-1 h-8 bg-gray-400 rounded-full
+          transition-all duration-200 
+          ${isResizing ? 'opacity-100 scale-110' : 'opacity-0 group-hover:opacity-60'}
+        `} />
+        
+        {/* Resize grip dots */}
+        <div className={`
+          absolute left-0.5 top-1/2 transform -translate-y-1/2 
+          flex flex-col gap-1 pointer-events-none
+          transition-opacity duration-200
+          ${isResizing ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}
+        `}>
+          <div className="w-1 h-1 bg-gray-500 rounded-full" />
+          <div className="w-1 h-1 bg-gray-500 rounded-full" />
+          <div className="w-1 h-1 bg-gray-500 rounded-full" />
+        </div>
+      </div>
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -860,22 +893,16 @@ export function HITLSidebar() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setSidebarOpen(false)}
+            onClick={() => {
+              setSidebarOpen(false)
+              onWidthChange?.(sidebarWidth, false)
+            }}
           >
             <X className="w-4 h-4" />
           </Button>
         </div>
         
-        {progress && !hitlPrompt && (
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm text-gray-600">
-              <span>Step {progress.currentStep} of {progress.totalSteps}</span>
-              <span>{progress.progress}%</span>
-            </div>
-            <Progress value={progress.progress} className="w-full" />
-            <p className="text-sm text-gray-700">{progress.message}</p>
-          </div>
-        )}
+
       </div>
 
       <div className="flex-1 overflow-hidden flex flex-col">

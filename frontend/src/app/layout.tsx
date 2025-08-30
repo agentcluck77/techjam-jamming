@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Navigation } from "@/components/Navigation";
 import { HITLSidebar } from "@/components/HITLSidebar";
+import { LayoutWrapper } from "@/components/LayoutWrapper";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,13 +30,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-50`}
       >
-        <div className="min-h-screen">
-          <Navigation />
-          <main className="ml-64 mr-80 min-h-screen">
-            {children}
-          </main>
-          <HITLSidebar />
-        </div>
+        <LayoutWrapper>
+          {children}
+        </LayoutWrapper>
       </body>
     </html>
   );
