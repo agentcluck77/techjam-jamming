@@ -4,6 +4,7 @@ Real-time agent orchestration with tool calling and HITL gates, similar to Claud
 """
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from datetime import datetime
@@ -24,6 +25,7 @@ lawyer_agent = LawyerTRDAgent()
 
 # Agent state management
 agent_sessions = {}
+agent_locks = {}  # Prevent concurrent agent loops
 
 class ChatRequest(BaseModel):
     message: str
@@ -46,6 +48,15 @@ class ReasoningStep(BaseModel):
     duration: Optional[float] = None
     timestamp: str
 
+class MCPExecution(BaseModel):
+    tool: str
+    query: str
+    results_count: int
+    execution_time: float
+    result_summary: str
+    timestamp: str
+    raw_results: dict
+
 class ChatResponse(BaseModel):
     response: str
     timestamp: str
@@ -55,6 +66,7 @@ class ChatResponse(BaseModel):
     reasoning: Optional[List[ReasoningStep]] = None
     reasoning_duration: Optional[float] = None
     is_reasoning_complete: Optional[bool] = None
+    mcp_executions: Optional[List[MCPExecution]] = None
 
 class AgentState(BaseModel):
     session_id: str
@@ -65,6 +77,63 @@ class AgentState(BaseModel):
     start_time: Optional[datetime] = None
     pending_mcp_decision: Optional[Dict[str, str]] = None
     status: str = "active"  # active, waiting_hitl, completed, error
+    mcp_sent_count: int = 0  # Track sent MCP executions atomically
+
+@router.post("/legal-chat-stream")
+async def legal_compliance_chat_stream(request: ChatRequest):
+    """
+    Real-time streaming LLM responses - actual token streaming as they come from the LLM
+    """
+    
+    logger.info(f"🌊 STREAMING CHAT - Message: '{request.message[:100]}...'")
+    
+    if not request.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    
+    async def generate_stream():
+        try:
+            # Generate unique session for tracking
+            session_id = f"stream-{uuid.uuid4().hex[:8]}"
+            
+            # Send initial status
+            yield f"data: {json.dumps({'type': 'status', 'session_id': session_id, 'message': 'Starting analysis...'})}\n\n"
+            
+            # Use LLM streaming for real-time token generation
+            prompt = f"""Analyze this legal compliance request and provide a detailed assessment:
+
+User Request: {request.message}
+
+Provide a comprehensive legal compliance analysis focusing on:
+1. Key regulatory areas that apply
+2. Potential compliance risks
+3. Specific requirements to address
+4. Recommended next steps
+
+Be thorough and specific in your analysis."""
+            
+            # Stream tokens as they come from the LLM
+            full_response = ""
+            async for chunk in llm_client.stream(prompt, max_tokens=1500, temperature=0.1):
+                if chunk.get("content"):
+                    full_response += chunk["content"]
+                    yield f"data: {json.dumps({'type': 'token', 'content': chunk['content'], 'session_id': session_id})}\n\n"
+                elif chunk.get("done"):
+                    yield f"data: {json.dumps({'type': 'complete', 'session_id': session_id, 'full_response': full_response})}\n\n"
+                    break
+            
+        except Exception as e:
+            logger.error(f"❌ Streaming chat error: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Analysis failed: {str(e)}'})}\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream",
+        }
+    )
 
 @router.post("/legal-chat", response_model=ChatResponse)
 async def legal_compliance_chat(request: ChatRequest, background_tasks: BackgroundTasks):
@@ -81,7 +150,7 @@ async def legal_compliance_chat(request: ChatRequest, background_tasks: Backgrou
         # Generate unique agent session
         session_id = f"agent-{uuid.uuid4().hex[:8]}"
         
-        # Initialize agent state
+        # Initialize agent state and lock
         start_time = datetime.now()
         agent_sessions[session_id] = AgentState(
             session_id=session_id,
@@ -90,6 +159,7 @@ async def legal_compliance_chat(request: ChatRequest, background_tasks: Backgrou
             start_time=start_time,
             status="active"
         )
+        agent_locks[session_id] = asyncio.Lock()  # Prevent concurrent loops
         
         # Start autonomous agent loop
         background_tasks.add_task(_run_autonomous_agent, session_id, request.message, request.context)
@@ -127,66 +197,74 @@ async def _run_autonomous_agent(session_id: str, user_message: str, context: Opt
     The LLM has full autonomy to decide next actions, call tools, and interact.
     """
     
-    agent_state = agent_sessions[session_id]
-    logger.info(f"🤖 Starting autonomous agent loop for session {session_id}")
-    
-    try:
-        # Main agent orchestration loop
-        max_iterations = 10  # Prevent infinite loops
-        iteration = 0
+    # Acquire lock to prevent concurrent agent loops
+    if session_id not in agent_locks:
+        logger.error(f"❌ No lock found for session {session_id}")
+        return
         
-        while iteration < max_iterations and agent_state.status == "active":
-            iteration += 1
-            logger.info(f"🔄 Agent iteration {iteration}/{max_iterations}")
+    async with agent_locks[session_id]:
+        agent_state = agent_sessions[session_id]
+        logger.info(f"🤖 Starting autonomous agent loop for session {session_id}")
+        
+        try:
+            # Main agent orchestration loop
+            max_iterations = 10  # Prevent infinite loops
+            iteration = 0
             
-            # Get next action from LLM agent
-            next_action = await _agent_decide_next_action(session_id, user_message, context)
-            
-            if not next_action:
-                logger.warning(f"❌ Agent couldn't decide next action - ending loop")
-                break
+            while iteration < max_iterations and agent_state.status == "active":
+                iteration += 1
+                logger.info(f"🔄 Agent iteration {iteration}/{max_iterations}")
                 
-            logger.info(f"🎯 Agent decided: {next_action.action_type}")
+                # Get next action from LLM agent
+                next_action = await _agent_decide_next_action(session_id, user_message, context)
+                
+                if not next_action:
+                    logger.warning(f"❌ Agent couldn't decide next action - ending loop")
+                    break
+                    
+                logger.info(f"🎯 Agent decided: {next_action.action_type}")
+                
+                # Execute the action
+                if next_action.action_type == "mcp_call":
+                    # MCP calls require HITL approval - send HITL prompt first
+                    await _agent_send_mcp_approval_prompt(session_id, next_action)
+                    agent_state.status = "waiting_hitl"
+                    break  # Wait for user approval
+                elif next_action.action_type == "analysis":
+                    await _agent_perform_analysis(session_id, next_action)
+                    # Yield control aggressively to allow frontend polling between reasoning steps  
+                    await asyncio.sleep(1.5)  # Increased delay for stability
+                elif next_action.action_type == "response":
+                    await _agent_send_final_response(session_id, next_action)
+                    break  # End the loop after final response
+                elif next_action.action_type == "hitl_prompt":
+                    await _agent_send_hitl_prompt(session_id, next_action)
+                    agent_state.status = "waiting_hitl"
+                    break  # Wait for user input
+                
+                # Yield control between iterations for real-time frontend updates
+                await asyncio.sleep(1.5)  # Increased delay for stability
             
-            # Execute the action
-            if next_action.action_type == "mcp_call":
-                # MCP calls require HITL approval - send HITL prompt first
-                await _agent_send_mcp_approval_prompt(session_id, next_action)
-                agent_state.status = "waiting_hitl"
-                break  # Wait for user approval
-            elif next_action.action_type == "analysis":
-                await _agent_perform_analysis(session_id, next_action)
-            elif next_action.action_type == "response":
-                await _agent_send_final_response(session_id, next_action)
-                break  # End the loop after final response
-            elif next_action.action_type == "hitl_prompt":
-                await _agent_send_hitl_prompt(session_id, next_action)
-                agent_state.status = "waiting_hitl"
-                break  # Wait for user input
+            if iteration >= max_iterations:
+                logger.warning(f"⚠️ Agent hit max iterations limit")
+                agent_state.status = "completed"
+                # Send timeout message
+                active_workflows[session_id] = {
+                    "id": session_id,
+                    "status": "complete",
+                    "final_response": "⏰ **Agent Analysis Complete**\n\nI've reached my processing limit. The analysis I've performed so far is available above.",
+                    "completed_at": datetime.now().isoformat()
+                }
             
-            # Small delay to prevent overwhelming
-            await asyncio.sleep(0.5)
-        
-        if iteration >= max_iterations:
-            logger.warning(f"⚠️ Agent hit max iterations limit")
-            agent_state.status = "completed"
-            # Send timeout message
+        except Exception as e:
+            logger.error(f"❌ Autonomous agent failed for {session_id}: {e}")
+            agent_state.status = "error"
             active_workflows[session_id] = {
                 "id": session_id,
-                "status": "complete",
-                "final_response": "⏰ **Agent Analysis Complete**\n\nI've reached my processing limit. The analysis I've performed so far is available above.",
+                "status": "error",
+                "error": f"Agent encountered an error: {str(e)}",
                 "completed_at": datetime.now().isoformat()
             }
-        
-    except Exception as e:
-        logger.error(f"❌ Autonomous agent failed for {session_id}: {e}")
-        agent_state.status = "error"
-        active_workflows[session_id] = {
-            "id": session_id,
-            "status": "error",
-            "error": f"Agent encountered an error: {str(e)}",
-            "completed_at": datetime.now().isoformat()
-        }
 
 async def _agent_decide_next_action(session_id: str, user_message: str, context: Optional[str]) -> Optional[AgentAction]:
     """
@@ -281,24 +359,47 @@ What is your next action?"""
         content = response.get("content", "").strip()
         logger.info(f"🧠 Agent decision: {content[:200]}...")
         
-        # Parse agent decision with robust parsing
+        # Parse agent decision with robust parsing - handle multi-line content
         action_type = None
         reasoning = ""
         details = {}
         response_content = ""
         
-        # Primary parsing method
-        for line in content.split('\n'):
-            line = line.strip()
+        # Improved parsing method to handle multi-line RESPONSE_CONTENT
+        lines = content.split('\n')
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
             if line.startswith("ACTION_TYPE:"):
                 action_type = line.replace("ACTION_TYPE:", "").strip()
             elif line.startswith("REASONING:"):
                 reasoning = line.replace("REASONING:", "").strip()
             elif line.startswith("RESPONSE_CONTENT:"):
-                response_content = line.replace("RESPONSE_CONTENT:", "").strip()
+                # Handle multi-line response content
+                response_lines = []
+                first_line_content = line.replace("RESPONSE_CONTENT:", "").strip()
+                if first_line_content:
+                    response_lines.append(first_line_content)
+                
+                # Continue reading lines until we hit another field or end of content
+                i += 1
+                while i < len(lines):
+                    next_line = lines[i].strip()
+                    if (next_line.startswith("DETAILS:") or 
+                        next_line.startswith("ACTION_TYPE:") or 
+                        next_line.startswith("REASONING:")):
+                        i -= 1  # Step back so outer loop processes this line
+                        break
+                    if next_line:  # Only add non-empty lines
+                        response_lines.append(next_line)
+                    i += 1
+                
+                response_content = "\n".join(response_lines).strip()
+                logger.info(f"🔍 Parsed multi-line response_content: {response_content[:300]}...")
             elif line.startswith("DETAILS:"):
                 details_str = line.replace("DETAILS:", "").strip()
                 details = {"description": details_str}
+            i += 1
         
         # Fallback parsing - look for action types anywhere in the text
         if not action_type or action_type not in ["mcp_call", "analysis", "response", "hitl_prompt"]:
@@ -600,7 +701,9 @@ async def _agent_send_final_response(session_id: str, action: AgentAction):
             "Analysis complete - no response content available"
         ).strip()
         
-        logger.info(f"🔍 Final response content: {response_content[:200]}...")
+        logger.info(f"🔍 Final response content length: {len(response_content)}")
+        logger.info(f"🔍 Final response content preview: {response_content[:300]}...")
+        logger.info(f"🔍 Action details keys: {list(action.details.keys())}")
         
         # Mark workflow as complete with the actual LLM response
         active_workflows[session_id] = {
@@ -614,6 +717,10 @@ async def _agent_send_final_response(session_id: str, action: AgentAction):
         agent_state.status = "completed"
         
         logger.info(f"✅ Agent sent final response for session {session_id}")
+        logger.info(f"🔍 Active workflows now contains: {session_id in active_workflows}")
+        if session_id in active_workflows:
+            logger.info(f"🔍 Workflow status: {active_workflows[session_id].get('status')}")
+            logger.info(f"🔍 Final response length: {len(active_workflows[session_id].get('final_response', ''))}")
         
     except Exception as e:
         logger.error(f"❌ Agent final response failed: {e}")
@@ -707,9 +814,9 @@ async def _agent_continue_after_hitl(session_id: str, user_response: str):
                     original_message = msg['content']
                     break
             
-            # Restart the autonomous agent loop in background
+            # Restart the autonomous agent loop in background - with locking
             import asyncio
-            asyncio.create_task(_resume_autonomous_agent(session_id, original_message))
+            asyncio.create_task(_resume_autonomous_agent_locked(session_id, original_message))
             
         else:
             # User declined - clear pending decision and continue
@@ -724,85 +831,93 @@ async def _agent_continue_after_hitl(session_id: str, user_response: str):
                     break
             
             import asyncio
-            asyncio.create_task(_resume_autonomous_agent(session_id, original_message))
+            asyncio.create_task(_resume_autonomous_agent_locked(session_id, original_message))
             
         logger.info(f"✅ Agent ready to continue after HITL")
         
     except Exception as e:
         logger.error(f"❌ Agent HITL continuation failed: {e}")
 
-async def _resume_autonomous_agent(session_id: str, original_message: str):
+async def _resume_autonomous_agent_locked(session_id: str, original_message: str):
     """
-    Resume the autonomous agent loop after HITL approval
+    Resume the autonomous agent loop after HITL approval - with proper locking
     """
     
-    try:
-        logger.info(f"🔄 Resuming autonomous agent loop for session {session_id}")
+    # Acquire lock to prevent concurrent agent loops
+    if session_id not in agent_locks:
+        logger.error(f"❌ No lock found for session {session_id}")
+        return
         
-        agent_state = agent_sessions[session_id]
-        
-        if agent_state.status != "active":
-            logger.info(f"❌ Agent not in active state, cannot resume: {agent_state.status}")
-            return
-        
-        # Main agent orchestration loop (resumed)
-        max_iterations = 8  # Fewer iterations since we've already started
-        iteration = 0
-        
-        while iteration < max_iterations and agent_state.status == "active":
-            iteration += 1
-            logger.info(f"🔄 Agent resume iteration {iteration}/{max_iterations}")
+    async with agent_locks[session_id]:
+        try:
+            logger.info(f"🔄 Resuming autonomous agent loop for session {session_id}")
             
-            # Get next action from LLM agent
-            next_action = await _agent_decide_next_action(session_id, original_message, None)
+            agent_state = agent_sessions[session_id]
             
-            if not next_action:
-                logger.warning(f"❌ Agent couldn't decide next action - ending resumed loop")
-                break
+            if agent_state.status != "active":
+                logger.info(f"❌ Agent not in active state, cannot resume: {agent_state.status}")
+                return
+            
+            # Main agent orchestration loop (resumed)
+            max_iterations = 8  # Fewer iterations since we've already started
+            iteration = 0
+            
+            while iteration < max_iterations and agent_state.status == "active":
+                iteration += 1
+                logger.info(f"🔄 Agent resume iteration {iteration}/{max_iterations}")
                 
-            logger.info(f"🎯 Agent resumed decision: {next_action.action_type}")
+                # Get next action from LLM agent
+                next_action = await _agent_decide_next_action(session_id, original_message, None)
+                
+                if not next_action:
+                    logger.warning(f"❌ Agent couldn't decide next action - ending resumed loop")
+                    break
+                    
+                logger.info(f"🎯 Agent resumed decision: {next_action.action_type}")
+                
+                # Execute the action
+                if next_action.action_type == "mcp_call":
+                    # MCP calls require HITL approval - send HITL prompt first
+                    await _agent_send_mcp_approval_prompt(session_id, next_action)
+                    agent_state.status = "waiting_hitl"
+                    break  # Wait for user approval
+                elif next_action.action_type == "analysis":
+                    await _agent_perform_analysis(session_id, next_action)
+                    # Yield control aggressively to allow frontend polling between reasoning steps  
+                    await asyncio.sleep(1.5)  # Increased delay for stability
+                elif next_action.action_type == "response":
+                    await _agent_send_final_response(session_id, next_action)
+                    break  # End the loop after final response
+                elif next_action.action_type == "hitl_prompt":
+                    await _agent_send_hitl_prompt(session_id, next_action)
+                    agent_state.status = "waiting_hitl"
+                    break  # Wait for user input
+                
+                # Yield control between iterations for real-time frontend updates
+                await asyncio.sleep(1.5)  # Increased delay for stability
             
-            # Execute the action
-            if next_action.action_type == "mcp_call":
-                # MCP calls require HITL approval - send HITL prompt first
-                await _agent_send_mcp_approval_prompt(session_id, next_action)
-                agent_state.status = "waiting_hitl"
-                break  # Wait for user approval
-            elif next_action.action_type == "analysis":
-                await _agent_perform_analysis(session_id, next_action)
-            elif next_action.action_type == "response":
-                await _agent_send_final_response(session_id, next_action)
-                break  # End the loop after final response
-            elif next_action.action_type == "hitl_prompt":
-                await _agent_send_hitl_prompt(session_id, next_action)
-                agent_state.status = "waiting_hitl"
-                break  # Wait for user input
+            if iteration >= max_iterations:
+                logger.warning(f"⚠️ Resumed agent hit max iterations limit")
+                agent_state.status = "completed"
+                # Send timeout message
+                active_workflows[session_id] = {
+                    "id": session_id,
+                    "status": "complete",
+                    "final_response": "⏰ **Agent Analysis Complete**\n\nI've reached my processing limit for this session. The analysis I've performed so far is available above.",
+                    "completed_at": datetime.now().isoformat()
+                }
             
-            # Small delay to prevent overwhelming
-            await asyncio.sleep(0.5)
-        
-        if iteration >= max_iterations:
-            logger.warning(f"⚠️ Resumed agent hit max iterations limit")
-            agent_state.status = "completed"
-            # Send timeout message
+        except Exception as e:
+            logger.error(f"❌ Autonomous agent resume failed for {session_id}: {e}")
+            agent_state = agent_sessions.get(session_id)
+            if agent_state:
+                agent_state.status = "error"
             active_workflows[session_id] = {
                 "id": session_id,
-                "status": "complete",
-                "final_response": "⏰ **Agent Analysis Complete**\n\nI've reached my processing limit for this session. The analysis I've performed so far is available above.",
+                "status": "error", 
+                "error": f"Agent resume encountered an error: {str(e)}",
                 "completed_at": datetime.now().isoformat()
             }
-        
-    except Exception as e:
-        logger.error(f"❌ Autonomous agent resume failed for {session_id}: {e}")
-        agent_state = agent_sessions.get(session_id)
-        if agent_state:
-            agent_state.status = "error"
-        active_workflows[session_id] = {
-            "id": session_id,
-            "status": "error", 
-            "error": f"Agent resume encountered an error: {str(e)}",
-            "completed_at": datetime.now().isoformat()
-        }
 
 async def _execute_approved_mcp_call(session_id: str):
     """
@@ -839,7 +954,8 @@ async def _execute_approved_mcp_call(session_id: str):
             "tool": tool_decision["tool"],
             "query": tool_decision["query"],
             "result": result,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "execution_time": (datetime.now() - mcp_start).total_seconds()
         })
         
         # Add to conversation history
@@ -856,6 +972,31 @@ async def _execute_approved_mcp_call(session_id: str):
             duration=mcp_duration,
             timestamp=datetime.now().isoformat()
         ))
+        
+        # Store MCP execution for chat display - with atomic operations
+        if not hasattr(agent_state, 'mcp_executions_for_chat'):
+            agent_state.mcp_executions_for_chat = []
+        
+        # Create result summary
+        results_count = len(result.get('results', []))
+        if results_count > 0:
+            result_summary = f"Found {results_count} relevant documents"
+            if results_count >= 3:
+                result_summary += f" including {result['results'][0].get('title', 'document')} and others"
+        else:
+            result_summary = "No matching documents found"
+        
+        # Atomic append operation
+        mcp_execution = {
+            "tool": tool_decision["tool"],
+            "query": tool_decision["query"],
+            "results_count": results_count,
+            "execution_time": mcp_duration,
+            "timestamp": datetime.now().isoformat(),
+            "result_summary": result_summary,
+            "raw_results": result  # Include the full JSON response
+        }
+        agent_state.mcp_executions_for_chat.append(mcp_execution)
         
         # Clear the pending decision
         agent_state.pending_mcp_decision = None
@@ -946,6 +1087,30 @@ async def poll_for_next_message(workflow_id: str):
             if agent_state.start_time:
                 total_duration = (datetime.now() - agent_state.start_time).total_seconds()
             
+            # ALSO check for any remaining MCP executions when workflow is complete - atomic tracking
+            mcp_executions_to_send = []
+            if hasattr(agent_state, 'mcp_executions_for_chat'):
+                # Use atomic field from AgentState model instead of hasattr
+                current_sent_count = agent_state.mcp_sent_count
+                total_executions = len(agent_state.mcp_executions_for_chat)
+                
+                # Send any remaining MCP executions
+                new_executions = agent_state.mcp_executions_for_chat[current_sent_count:]
+                if new_executions:
+                    logger.info(f"🔍 Sending {len(new_executions)} remaining MCP executions with final response")
+                    mcp_executions_to_send = [
+                        MCPExecution(
+                            tool=exec["tool"],
+                            query=exec["query"],
+                            results_count=exec["results_count"],
+                            execution_time=exec["execution_time"],
+                            result_summary=exec["result_summary"],
+                            timestamp=exec["timestamp"],
+                            raw_results=exec["raw_results"]
+                        ) for exec in new_executions
+                    ]
+                    agent_state.mcp_sent_count = total_executions  # Atomic update
+            
             return ChatResponse(
                 response=final_response,
                 timestamp=datetime.now().isoformat(),
@@ -953,7 +1118,8 @@ async def poll_for_next_message(workflow_id: str):
                 workflow_id=workflow_id,
                 reasoning=agent_state.reasoning_steps,
                 reasoning_duration=total_duration,
-                is_reasoning_complete=True
+                is_reasoning_complete=True,
+                mcp_executions=mcp_executions_to_send if mcp_executions_to_send else None
             )
         
         # Check if agent has error
@@ -966,6 +1132,29 @@ async def poll_for_next_message(workflow_id: str):
                 workflow_id=workflow_id
             )
         
+        # Check for new MCP executions to show as chat messages - atomic tracking
+        mcp_executions_to_send = []
+        if hasattr(agent_state, 'mcp_executions_for_chat'):
+            # Use atomic field from AgentState model
+            current_sent_count = agent_state.mcp_sent_count
+            total_executions = len(agent_state.mcp_executions_for_chat)
+            
+            # Send any new MCP executions
+            new_executions = agent_state.mcp_executions_for_chat[current_sent_count:]
+            if new_executions:
+                mcp_executions_to_send = [
+                    MCPExecution(
+                        tool=exec["tool"],
+                        query=exec["query"],
+                        results_count=exec["results_count"],
+                        execution_time=exec["execution_time"],
+                        result_summary=exec["result_summary"],
+                        timestamp=exec["timestamp"],
+                        raw_results=exec["raw_results"]
+                    ) for exec in new_executions
+                ]
+                agent_state.mcp_sent_count = total_executions  # Atomic update
+        
         # Agent still processing
         status_msg = "active" if agent_state.status == "active" else agent_state.status
         
@@ -974,6 +1163,12 @@ async def poll_for_next_message(workflow_id: str):
         if agent_state.start_time:
             current_duration = (datetime.now() - agent_state.start_time).total_seconds()
         
+        # Debug logging for MCP executions - with atomic tracking
+        if mcp_executions_to_send:
+            logger.info(f"🔍 Sending {len(mcp_executions_to_send)} MCP executions to frontend")
+        elif hasattr(agent_state, 'mcp_executions_for_chat') and agent_state.mcp_executions_for_chat:
+            logger.info(f"🔍 Agent has {len(agent_state.mcp_executions_for_chat)} total MCP executions, sent_count: {agent_state.mcp_sent_count}")
+        
         return ChatResponse(
             response="⏳ Thinking...",
             timestamp=datetime.now().isoformat(),
@@ -981,7 +1176,8 @@ async def poll_for_next_message(workflow_id: str):
             workflow_id=workflow_id,
             reasoning=agent_state.reasoning_steps,
             reasoning_duration=current_duration,
-            is_reasoning_complete=False
+            is_reasoning_complete=False,
+            mcp_executions=mcp_executions_to_send if mcp_executions_to_send else None
         )
     
     # Legacy workflow support

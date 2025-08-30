@@ -395,16 +395,33 @@ export default function KnowledgeBase() {
 }
 
 const defaultKnowledgeBase = `# TikTok Terminology
-- "Live Shopping" = e-commerce integration during live streams
-- "Creator Fund" = monetization program for content creators
-- "For You Page" = personalized recommendation feed
 
-# Legal Precedents
-- Utah Social Media Act requires age verification for minor features and 10:30 PM - 6:30 AM curfews
-- EU DSA mandates 24-hour content moderation response times
-- COPPA applies to any feature accessible by users under 13
+## Core Platform Terms
+- **ASL** = American Sign Language
+- **FYP** = For You Page (personalized recommendation feed)
+- **LIVE** = live streaming feature
+- **algo** = algorithm (recommendation system)
 
-# Compliance Patterns
-- Payment processing → PCI DSS compliance required
-- User data collection → Privacy policy updates needed
-- Minor-accessible features → Parental controls mandatory`
+## Content Features
+- **duet** = collaborative video feature allowing response videos
+- **stitch** = video response feature for remixing content
+- **sound sync** = audio synchronization feature
+- **green screen** = background replacement feature
+- **beauty filter** = appearance enhancement filter
+- **AR effects** = augmented reality effects
+
+## Creator & Commerce
+- **Creator Fund** = monetization program for content creators
+- **creator marketplace** = brand partnership platform
+- **TikTok Shop** = e-commerce integration platform
+- **branded content** = sponsored content feature
+
+## Business & Analytics
+- **pulse** = analytics dashboard for creators and businesses
+- **spark ads** = advertising platform for businesses
+- **brand takeover** = full-screen advertisement format
+- **top view** = premium ad placement option
+
+## Feature Components
+- **jellybean** = individual feature component within the platform
+- **hashtag challenge** = trending challenge campaign format`

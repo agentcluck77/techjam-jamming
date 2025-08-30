@@ -142,6 +142,38 @@ class SimpleLLMClient:
         
         raise Exception("All LLM providers failed")
     
+    async def stream(self, prompt: str, max_tokens: int = 2000, temperature: float = 0.1):
+        """
+        Generate streaming completion using the first available provider
+        Yields tokens as they come from the LLM
+        """
+        
+        if not self.available_providers:
+            raise Exception("No LLM providers available. Please configure API keys.")
+        
+        # Try providers in order of preference
+        for provider in self.available_providers:
+            try:
+                if provider in [LLMProvider.GEMINI_FLASH, LLMProvider.GEMINI_PRO, 
+                               LLMProvider.GEMINI_FLASH_8B, LLMProvider.GEMINI_2_FLASH]:
+                    async for chunk in self._stream_gemini(prompt, max_tokens, temperature, provider.value):
+                        yield chunk
+                    return
+                elif provider == LLMProvider.CLAUDE_SONNET:
+                    async for chunk in self._stream_claude(prompt, max_tokens, temperature):
+                        yield chunk
+                    return
+                elif provider == LLMProvider.GPT_4:
+                    async for chunk in self._stream_openai(prompt, max_tokens, temperature):
+                        yield chunk
+                    return
+                    
+            except Exception as e:
+                logger.warning(f"LLM provider {provider.value} streaming failed: {e}")
+                continue
+        
+        raise Exception("All LLM providers failed for streaming")
+    
     async def _complete_gemini(self, prompt: str, max_tokens: int, temperature: float, model_id: str = None) -> Dict[str, Any]:
         """Complete using Google Gemini with specified model"""
         
@@ -180,6 +212,54 @@ class SimpleLLMClient:
             logger.error(f"Gemini API error: {e}")
             raise
     
+    async def _stream_gemini(self, prompt: str, max_tokens: int, temperature: float, model_id: str = None):
+        """Stream using Google Gemini with specified model"""
+        
+        try:
+            # Use preferred model if set, otherwise use the passed model_id or default
+            if self.preferred_model:
+                model_to_use = self.preferred_model
+            elif model_id:
+                model_to_use = model_id
+            else:
+                model_to_use = "gemini-1.5-flash"
+            
+            # Create model client dynamically
+            gemini_client = self.genai.GenerativeModel(model_to_use)
+            
+            # Configure generation parameters
+            generation_config = {
+                'max_output_tokens': max_tokens,
+                'temperature': temperature,
+                'top_p': 0.8,
+                'top_k': 40
+            }
+            
+            response = gemini_client.generate_content(
+                prompt,
+                generation_config=generation_config,
+                stream=True  # Enable streaming
+            )
+            
+            for chunk in response:
+                if chunk.text:
+                    yield {
+                        "content": chunk.text,
+                        "model": model_to_use,
+                        "done": False
+                    }
+            
+            # Final chunk to indicate completion
+            yield {
+                "content": "",
+                "model": model_to_use,
+                "done": True
+            }
+            
+        except Exception as e:
+            logger.error(f"Gemini streaming API error: {e}")
+            raise
+    
     async def _complete_claude(self, prompt: str, max_tokens: int, temperature: float) -> Dict[str, Any]:
         """Complete using Anthropic Claude"""
         
@@ -201,6 +281,34 @@ class SimpleLLMClient:
             logger.error(f"Claude API error: {e}")
             raise
     
+    async def _stream_claude(self, prompt: str, max_tokens: int, temperature: float):
+        """Stream using Anthropic Claude"""
+        
+        try:
+            with self.anthropic_client.messages.stream(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=[{"role": "user", "content": prompt}]
+            ) as stream:
+                for text in stream.text_stream:
+                    yield {
+                        "content": text,
+                        "model": "claude-3-5-sonnet-20241022",
+                        "done": False
+                    }
+            
+            # Final chunk to indicate completion
+            yield {
+                "content": "",
+                "model": "claude-3-5-sonnet-20241022",
+                "done": True
+            }
+            
+        except Exception as e:
+            logger.error(f"Claude streaming API error: {e}")
+            raise
+    
     async def _complete_openai(self, prompt: str, max_tokens: int, temperature: float) -> Dict[str, Any]:
         """Complete using OpenAI GPT"""
         
@@ -220,6 +328,37 @@ class SimpleLLMClient:
             
         except Exception as e:
             logger.error(f"OpenAI API error: {e}")
+            raise
+    
+    async def _stream_openai(self, prompt: str, max_tokens: int, temperature: float):
+        """Stream using OpenAI GPT"""
+        
+        try:
+            stream = self.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stream=True
+            )
+            
+            for chunk in stream:
+                if chunk.choices[0].delta.content is not None:
+                    yield {
+                        "content": chunk.choices[0].delta.content,
+                        "model": "gpt-4",
+                        "done": False
+                    }
+            
+            # Final chunk to indicate completion
+            yield {
+                "content": "",
+                "model": "gpt-4",
+                "done": True
+            }
+            
+        except Exception as e:
+            logger.error(f"OpenAI streaming API error: {e}")
             raise
 
 # Global LLM client instance

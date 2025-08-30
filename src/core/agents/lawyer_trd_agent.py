@@ -80,7 +80,7 @@ class LawyerKnowledgeBase:
             if api_path not in sys.path:
                 sys.path.insert(0, api_path)
             
-            from document_management import get_knowledge_base_content
+            from ...api.endpoints.document_management import get_knowledge_base_content
             content = get_knowledge_base_content()
             if content:
                 self.knowledge_content = content
@@ -92,19 +92,36 @@ class LawyerKnowledgeBase:
             # Return default content if nothing is cached
             if not self.knowledge_content:
                 return """# TikTok Terminology
-- "Live Shopping" = e-commerce integration during live streams
-- "Creator Fund" = monetization program for content creators
-- "For You Page" = personalized recommendation feed
 
-# Legal Precedents
-- Utah Social Media Act requires age verification for minor features and 10:30 PM - 6:30 AM curfews
-- EU DSA mandates 24-hour content moderation response times
-- COPPA applies to any feature accessible by users under 13
+## Core Platform Terms
+- **ASL** = American Sign Language
+- **FYP** = For You Page (personalized recommendation feed)
+- **LIVE** = live streaming feature
+- **algo** = algorithm (recommendation system)
 
-# Compliance Patterns
-- Payment processing → PCI DSS compliance required
-- User data collection → Privacy policy updates needed
-- Minor-accessible features → Parental controls mandatory"""
+## Content Features
+- **duet** = collaborative video feature allowing response videos
+- **stitch** = video response feature for remixing content
+- **sound sync** = audio synchronization feature
+- **green screen** = background replacement feature
+- **beauty filter** = appearance enhancement filter
+- **AR effects** = augmented reality effects
+
+## Creator & Commerce
+- **Creator Fund** = monetization program for content creators
+- **creator marketplace** = brand partnership platform
+- **TikTok Shop** = e-commerce integration platform
+- **branded content** = sponsored content feature
+
+## Business & Analytics
+- **pulse** = analytics dashboard for creators and businesses
+- **spark ads** = advertising platform for businesses
+- **brand takeover** = full-screen advertisement format
+- **top view** = premium ad placement option
+
+## Feature Components
+- **jellybean** = individual feature component within the platform
+- **hashtag challenge** = trending challenge campaign format"""
             return self.knowledge_content
     
     async def update_knowledge_base_content(self, content: str, user_id: str = "user") -> bool:
@@ -118,7 +135,7 @@ class LawyerKnowledgeBase:
             if api_path not in sys.path:
                 sys.path.insert(0, api_path)
             
-            from document_management import update_knowledge_base_content
+            from ...api.endpoints.document_management import update_knowledge_base_content
             return update_knowledge_base_content(content)
         except Exception as e:
             print(f"Failed to update knowledge base in API: {e}")
