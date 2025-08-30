@@ -1,9 +1,9 @@
 # get definition by region and statute
 import logging
 import os
-from src2.helpers.db.common_queries import CommonQueries, DbQueryResult
 import asyncpg
 from dotenv import load_dotenv
+from postgres.src2.helpers.db.common_queries import CommonQueries, DbQueryResult
 logger = logging.getLogger(__name__)
 load_dotenv()
 
@@ -34,7 +34,7 @@ async def get_definition(region: str, statute: str) -> DbQueryResult:
     try:
         async with pool.acquire() as conn:
             queries = CommonQueries(conn)
-            result = await queries.get_all_law_regulations(region)
+            result = await queries.get_law_definition_by_statute(statute, region)
     finally:
         await pool.close()
 

@@ -1,9 +1,15 @@
 import sys
 import asyncio
+import os 
+from dotenv import load_dotenv
+
+load_dotenv()
+root_path = os.getenv("ROOT_PATH")
 
 # Add the project root directory to Python path
-sys.path.insert(0, r'C:\Users\xinti\OneDrive\Desktop\techjam-jamming')
+sys.path.insert(0, root_path)
 
+from postgres.src2.helpers.db.pdf_path_getter import get_pdf_path
 from postgres.src2.helpers.db.upsert_definitions import upsert_definitions
 from postgres.src2.helpers.db.upsert_regulations import upsert_regulations
 from postgres.src2.helpers.db.fetch_pdf import parse_and_clean, split_into_json_for_step2
@@ -37,7 +43,10 @@ async def upsert_law(region: str, pdf_path: str, statute: str) -> None:
 import asyncio
 
 if __name__ == "__main__":
-    pdf_path = r"C:\Users\xinti\OneDrive\Desktop\techjam-jamming\postgres\infodump\Florida State Law.pdf"
+    pdf_paths = get_pdf_path("Florida State Law.pdf", root_path)
+    if not pdf_paths:
+        raise FileNotFoundError("PDF not found")
+    pdf_path = pdf_paths[0]  # take the first match
     region = "Florida"
     statute = "Florida Stuff"
     asyncio.run(upsert_law(region, pdf_path, statute))

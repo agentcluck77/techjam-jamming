@@ -7,7 +7,6 @@ from postgres.src2.helpers.db.common_queries import CommonQueries, DbQueryResult
 logger = logging.getLogger(__name__)
 load_dotenv()
 
-
 async def get_region_regulation_details(region: str) -> DbQueryResult:
     # Get individual DB connection parameters
     user = os.getenv("DB_USER", "postgres")
