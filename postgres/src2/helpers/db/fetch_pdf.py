@@ -12,8 +12,7 @@ from postgres.src2.helpers.db.pdf_parser import parse_pdf
 from postgres.src2.helpers.laws.llm_service import cleaner_llm
 import json
 
-async def parse_and_clean(pdf_path: str) -> str:
-    text = parse_pdf(pdf_path)
+async def clean(text: str) -> str:
     definitions, step2 = await cleaner_llm(text)
     return definitions, step2
 
