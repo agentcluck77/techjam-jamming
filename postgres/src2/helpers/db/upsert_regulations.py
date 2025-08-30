@@ -21,3 +21,4 @@ async def upsert_regulations(regulations: List[Regulations], region: str) -> Non
         await queries.upsert_regulations(regulation, region)
 
     await pool.close()
+

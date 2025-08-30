@@ -22,3 +22,4 @@ async def upsert_definitions(definitions: List[Definitions], region: str) -> Non
         await queries.upsert_definitions(definition, region)
 
     await pool.close()
+
