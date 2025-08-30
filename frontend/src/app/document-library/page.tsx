@@ -5,10 +5,11 @@ import { Card, CardHeader, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { useDocumentStore } from '@/lib/stores'
-import { getDocuments } from '@/lib/api'
+import { getDocuments, startBulkRequirementsAnalysis, startBulkLegalAnalysis, getBatchJobStatus, getDocumentReport, exportReports } from '@/lib/api'
 import { Document } from '@/lib/types'
-import { BookOpen, Search, FolderOpen, Trash2, Download, Zap } from 'lucide-react'
+import { BookOpen, Search, Trash2, Download, Zap, FileText, Eye, RefreshCw } from 'lucide-react'
 
 export default function DocumentLibrary() {
   const [documents, setDocuments] = useState<Document[]>([])
@@ -16,6 +17,11 @@ export default function DocumentLibrary() {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<'all' | 'requirements' | 'legal'>('all')
+  const [bulkJobStatus, setBulkJobStatus] = useState<{[key: string]: string}>({})
+  const [documentReports, setDocumentReports] = useState<{[key: string]: any}>({})
+  const [selectedReport, setSelectedReport] = useState<any>(null)
+  const [isReportDialogOpen, setIsReportDialogOpen] = useState(false)
+  const [rerunningDocuments, setRerunningDocuments] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const loadDocuments = async () => {
@@ -79,6 +85,234 @@ export default function DocumentLibrary() {
   const requirementDocs = documents.filter(doc => doc.type === 'requirements')
   const legalDocs = documents.filter(doc => doc.type === 'legal')
   const totalSize = documents.reduce((sum, doc) => sum + doc.size, 0)
+  
+  const selectedRequirementDocs = selectedDocs.filter(id => 
+    documents.find(doc => doc.id === id)?.type === 'requirements'
+  )
+  const selectedLegalDocs = selectedDocs.filter(id => 
+    documents.find(doc => doc.id === id)?.type === 'legal'
+  )
+  
+  // Load document reports on mount
+  useEffect(() => {
+    const loadDocumentReports = async () => {
+      const reports: {[key: string]: any} = {}
+      for (const doc of documents) {
+        try {
+          const reportData = await getDocumentReport(doc.id)
+          if (reportData.has_report) {
+            reports[doc.id] = reportData.report
+          }
+        } catch (error) {
+          console.error(`Failed to load report for ${doc.id}:`, error)
+        }
+      }
+      setDocumentReports(reports)
+    }
+    
+    if (documents.length > 0) {
+      loadDocumentReports()
+    }
+  }, [documents])
+
+  // Function to refresh a specific document's report
+  const refreshDocumentReport = async (documentId: string) => {
+    try {
+      const reportData = await getDocumentReport(documentId)
+      setDocumentReports(prev => ({
+        ...prev,
+        [documentId]: reportData.has_report ? reportData.report : null
+      }))
+    } catch (error) {
+      console.error(`Failed to refresh report for ${documentId}:`, error)
+    }
+  }
+  
+  const handleBulkRequirementsAnalysis = async () => {
+    if (selectedRequirementDocs.length === 0) return
+    
+    try {
+      const result = await startBulkRequirementsAnalysis(selectedRequirementDocs, selectedLegalDocs.length > 0 ? selectedLegalDocs : undefined)
+      setBulkJobStatus(prev => ({...prev, [result.job_id]: 'processing'}))
+      
+      // Poll for job status
+      const pollInterval = setInterval(async () => {
+        try {
+          const status = await getBatchJobStatus(result.job_id)
+          setBulkJobStatus(prev => ({...prev, [result.job_id]: status.status}))
+          
+          if (status.status === 'completed' || status.status === 'failed') {
+            clearInterval(pollInterval)
+            // Refresh documents to show updated reports
+            const docs = await getDocuments()
+            setDocuments(docs)
+          }
+        } catch (error) {
+          console.error('Failed to poll job status:', error)
+          clearInterval(pollInterval)
+        }
+      }, 2000)
+      
+    } catch (error) {
+      console.error('Failed to start bulk requirements analysis:', error)
+    }
+  }
+  
+  const handleBulkLegalAnalysis = async () => {
+    if (selectedLegalDocs.length === 0) return
+    
+    try {
+      const result = await startBulkLegalAnalysis(selectedLegalDocs, selectedRequirementDocs.length > 0 ? selectedRequirementDocs : undefined)
+      setBulkJobStatus(prev => ({...prev, [result.job_id]: 'processing'}))
+      
+      // Poll for job status  
+      const pollInterval = setInterval(async () => {
+        try {
+          const status = await getBatchJobStatus(result.job_id)
+          setBulkJobStatus(prev => ({...prev, [result.job_id]: status.status}))
+          
+          if (status.status === 'completed' || status.status === 'failed') {
+            clearInterval(pollInterval)
+            // Refresh documents to show updated reports
+            const docs = await getDocuments()
+            setDocuments(docs)
+          }
+        } catch (error) {
+          console.error('Failed to poll job status:', error)
+          clearInterval(pollInterval)
+        }
+      }, 2000)
+      
+    } catch (error) {
+      console.error('Failed to start bulk legal analysis:', error)
+    }
+  }
+  
+  const handleExportReports = async () => {
+    const reportIds = selectedDocs
+      .map(docId => documentReports[docId]?.id)
+      .filter(Boolean)
+    
+    if (reportIds.length === 0) {
+      alert('No reports available for selected documents')
+      return
+    }
+    
+    try {
+      const blob = await exportReports(reportIds, 'csv')
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `compliance-reports-${new Date().toISOString().split('T')[0]}.csv`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (error) {
+      console.error('Failed to export reports:', error)
+    }
+  }
+  
+  const handleViewReport = (documentId: string) => {
+    const report = documentReports[documentId]
+    if (report) {
+      setSelectedReport(report)
+      setIsReportDialogOpen(true)
+    }
+  }
+  
+  const handleRerunAnalysis = async (documentId: string) => {
+    const doc = documents.find(d => d.id === documentId)
+    if (!doc) return
+    
+    try {
+      // Mark document as rerunning
+      setRerunningDocuments(prev => new Set([...prev, documentId]))
+      
+      // Clear any existing report for this document (keep only latest)
+      setDocumentReports(prev => ({
+        ...prev,
+        [documentId]: null
+      }))
+      
+      // Trigger the same auto-analysis flow as PDF upload
+      const autoAnalysisPrompt = `I have uploaded a ${doc.type} document "${doc.name}". Please analyze it for compliance requirements and provide a comprehensive legal analysis.`
+      
+      // Trigger auto-analysis event (same as PDF upload flow)
+      const autoAnalysisEvent = new CustomEvent('autoAnalysisTriggered', {
+        detail: {
+          prompt: autoAnalysisPrompt,
+          documentId: documentId,
+          documentName: doc.name,
+          documentType: doc.type
+        }
+      })
+      
+      // Dispatch the event to trigger the same flow as PDF upload
+      window.dispatchEvent(autoAnalysisEvent)
+      
+      console.log('✅ Rerun analysis triggered for:', doc.name)
+      
+      // Set up polling to check for analysis completion and refresh the report
+      const pollForCompletion = async () => {
+        let attempts = 0
+        const maxAttempts = 60 // Poll for up to 2 minutes (every 2 seconds)
+        
+        const pollInterval = setInterval(async () => {
+          attempts++
+          try {
+            const reportData = await getDocumentReport(documentId)
+            if (reportData.has_report && reportData.report.status !== 'pending') {
+              // Analysis is complete, update the report
+              setDocumentReports(prev => ({
+                ...prev,
+                [documentId]: reportData.report
+              }))
+              // Remove from rerunning state
+              setRerunningDocuments(prev => {
+                const newSet = new Set(prev)
+                newSet.delete(documentId)
+                return newSet
+              })
+              clearInterval(pollInterval)
+              console.log('✅ Analysis complete, report updated for:', doc.name)
+            } else if (attempts >= maxAttempts) {
+              // Stop polling after max attempts
+              setRerunningDocuments(prev => {
+                const newSet = new Set(prev)
+                newSet.delete(documentId)
+                return newSet
+              })
+              clearInterval(pollInterval)
+              console.log('⏱️ Polling timeout for:', doc.name)
+            }
+          } catch (error) {
+            console.error('Error polling for report completion:', error)
+            if (attempts >= maxAttempts) {
+              setRerunningDocuments(prev => {
+                const newSet = new Set(prev)
+                newSet.delete(documentId)
+                return newSet
+              })
+              clearInterval(pollInterval)
+            }
+          }
+        }, 2000) // Poll every 2 seconds
+      }
+      
+      // Start polling after a short delay to allow the analysis to start
+      setTimeout(pollForCompletion, 3000)
+      
+    } catch (error) {
+      console.error('Failed to rerun analysis:', error)
+      // Remove from rerunning state on error
+      setRerunningDocuments(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(documentId)
+        return newSet
+      })
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -157,10 +391,6 @@ export default function DocumentLibrary() {
                     Bulk Compliance Check
                   </Button>
                   <Button variant="outline" size="sm">
-                    <FolderOpen className="w-4 h-4 mr-2" />
-                    Move to Folder
-                  </Button>
-                  <Button variant="outline" size="sm">
                     <Trash2 className="w-4 h-4 mr-2" />
                     Delete
                   </Button>
@@ -228,7 +458,39 @@ export default function DocumentLibrary() {
                       <TableCell>{formatDate(doc.uploadDate)}</TableCell>
                       <TableCell>{getStatusBadge(doc.status)}</TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="sm">View</Button>
+                        <div className="flex gap-1">
+                          {documentReports[doc.id] ? (
+                            <>
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                onClick={() => handleViewReport(doc.id)}
+                              >
+                                <Eye className="w-4 h-4 mr-1" />
+                                View Report
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                onClick={() => handleRerunAnalysis(doc.id)}
+                                disabled={rerunningDocuments.has(doc.id)}
+                              >
+                                <RefreshCw className={`w-4 h-4 mr-1 ${rerunningDocuments.has(doc.id) ? 'animate-spin' : ''}`} />
+                                {rerunningDocuments.has(doc.id) ? 'Analyzing...' : 'Rerun'}
+                              </Button>
+                            </>
+                          ) : (
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => handleRerunAnalysis(doc.id)}
+                              disabled={rerunningDocuments.has(doc.id)}
+                            >
+                              <FileText className={`w-4 h-4 mr-1 ${rerunningDocuments.has(doc.id) ? 'animate-spin' : ''}`} />
+                              {rerunningDocuments.has(doc.id) ? 'Analyzing...' : 'Analyze'}
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -251,42 +513,119 @@ export default function DocumentLibrary() {
               <div className="p-4 border rounded-lg">
                 <h3 className="font-medium text-gray-900 mb-2">Requirements Analysis</h3>
                 <p className="text-sm text-gray-600 mb-3">
-                  Check selected requirements against all legal docs
+                  Check selected requirements docs against {selectedLegalDocs.length > 0 ? 'selected' : 'all'} legal docs ({selectedRequirementDocs.length} req docs selected)
                 </p>
-                <Button disabled={selectedDocs.length === 0} size="sm">
+                <Button 
+                  disabled={selectedRequirementDocs.length === 0}
+                  onClick={handleBulkRequirementsAnalysis}
+                  size="sm"
+                >
                   Run Analysis
                 </Button>
               </div>
               <div className="p-4 border rounded-lg">
                 <h3 className="font-medium text-gray-900 mb-2">Legal Document Review</h3>
                 <p className="text-sm text-gray-600 mb-3">
-                  Check selected legal docs against all requirements
+                  Check selected legal docs against {selectedRequirementDocs.length > 0 ? 'selected' : 'all'} requirements ({selectedLegalDocs.length} legal docs selected)
                 </p>
-                <Button disabled={selectedDocs.length === 0} size="sm">
+                <Button 
+                  disabled={selectedLegalDocs.length === 0}
+                  onClick={handleBulkLegalAnalysis}
+                  size="sm"
+                >
                   Run Review
                 </Button>
               </div>
               <div className="p-4 border rounded-lg">
                 <h3 className="font-medium text-gray-900 mb-2">Export Reports</h3>
                 <p className="text-sm text-gray-600 mb-3">
-                  Export compliance reports for selected documents
+                  Export compliance reports (CSV/JSON) - {Object.keys(documentReports).filter(id => selectedDocs.includes(id)).length} reports available
                 </p>
-                <Button disabled={selectedDocs.length === 0} variant="outline" size="sm">
+                <Button 
+                  disabled={selectedDocs.length === 0}
+                  onClick={handleExportReports}
+                  variant="outline" 
+                  size="sm"
+                >
                   Export
-                </Button>
-              </div>
-              <div className="p-4 border rounded-lg">
-                <h3 className="font-medium text-gray-900 mb-2">Organize Documents</h3>
-                <p className="text-sm text-gray-600 mb-3">
-                  Move documents to organized folders
-                </p>
-                <Button disabled={selectedDocs.length === 0} variant="outline" size="sm">
-                  Organize
                 </Button>
               </div>
             </div>
           </CardContent>
         </Card>
+
+        {/* Report Dialog */}
+        <Dialog open={isReportDialogOpen} onOpenChange={setIsReportDialogOpen}>
+          <DialogContent className="max-w-[90vw] w-full max-h-[85vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle>
+                Compliance Report - {selectedReport?.document_name || 'Unknown Document'}
+              </DialogTitle>
+            </DialogHeader>
+            {selectedReport && (
+              <div className="flex-1 overflow-y-auto pr-2 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <h4 className="font-semibold text-gray-900">Status</h4>
+                    <span className={`inline-block px-2 py-1 text-xs rounded-full ${
+                      selectedReport.status === 'completed' 
+                        ? 'bg-green-100 text-green-700'
+                        : selectedReport.status === 'failed'
+                        ? 'bg-red-100 text-red-700' 
+                        : 'bg-yellow-100 text-yellow-700'
+                    }`}>
+                      {selectedReport.status?.charAt(0).toUpperCase() + selectedReport.status?.slice(1)}
+                    </span>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-900">Document ID</h4>
+                    <p className="text-sm text-gray-600 font-mono">{selectedReport.id}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-semibold text-gray-900 mb-2">Summary</h4>
+                  <p className="text-gray-700 text-sm bg-gray-50 p-3 rounded border">
+                    {selectedReport.summary || 'No summary available'}
+                  </p>
+                </div>
+
+                {selectedReport.issues && selectedReport.issues.length > 0 && (
+                  <div>
+                    <h4 className="font-semibold text-gray-900 mb-2">Issues Identified</h4>
+                    <div className="bg-red-50 border border-red-200 rounded p-3">
+                      {selectedReport.issues.map((issue: string, index: number) => (
+                        <p key={index} className="text-red-700 text-sm mb-1">
+                          • {issue}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedReport.recommendations && selectedReport.recommendations.length > 0 && (
+                  <div>
+                    <h4 className="font-semibold text-gray-900 mb-2">Recommendations</h4>
+                    <div className="bg-blue-50 border border-blue-200 rounded p-3">
+                      {selectedReport.recommendations.map((rec: string, index: number) => (
+                        <p key={index} className="text-blue-700 text-sm mb-1">
+                          • {rec}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <h4 className="font-semibold text-gray-900 mb-2">Raw Report Data</h4>
+                  <pre className="text-xs bg-gray-100 p-3 rounded border overflow-auto max-h-48">
+                    {JSON.stringify(selectedReport, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )

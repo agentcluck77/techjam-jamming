@@ -10,7 +10,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query, Depends
 from pydantic import BaseModel, HttpUrl
 import json
 import aiohttp
@@ -18,10 +18,17 @@ import aiofiles
 from urllib.parse import urlparse
 import re
 
+from ...core.database import db_manager, DocumentRepository
+
 router = APIRouter(prefix="/api/documents", tags=["document-management"])
 
-# In-memory storage for demo (would be database in production)
-stored_documents: Dict[str, Dict] = {}
+# Database session dependency
+def get_document_repo():
+    db_session = next(db_manager.get_db_session())
+    try:
+        yield DocumentRepository(db_session)
+    finally:
+        db_session.close()
 
 # File storage setup
 BASE_DIR = Path(__file__).parent.parent.parent.parent
@@ -44,7 +51,8 @@ class DocumentResponse(BaseModel):
 async def upload_document(
     file: UploadFile = File(...),
     doc_type: str = Form(...),  # requirements or legal
-    metadata: Optional[str] = Form(None)
+    metadata: Optional[str] = Form(None),
+    doc_repo: DocumentRepository = Depends(get_document_repo)
 ):
     """Upload document with immediate library prompt response"""
     
@@ -96,10 +104,13 @@ async def upload_document(
         "size": len(content),
         "metadata": parsed_metadata,
         "file_path": str(file_path),  # Store file path instead of content
-        "processed": False
+        "processed": False,
+        "original_filename": file.filename,
+        "content_type": file.content_type
     }
     
-    stored_documents[document_id] = document
+    # Save to database instead of memory
+    await doc_repo.save_document(document)
     
     # Simulate processing delay
     await asyncio.sleep(0.5)
@@ -115,7 +126,8 @@ async def upload_document(
         document["status"] = "stored"
         document["processed"] = True
     
-    stored_documents[document_id] = document
+    # Update document status in database
+    await doc_repo.update_document_status(document_id, document["status"])
     
     return DocumentResponse(
         id=document["id"],
@@ -131,25 +143,21 @@ async def upload_document(
 async def get_documents(
     type_filter: Optional[str] = Query(None, alias="type"),
     status: Optional[str] = Query(None),
-    limit: Optional[int] = Query(None)
+    limit: Optional[int] = Query(None),
+    doc_repo: DocumentRepository = Depends(get_document_repo)
 ):
     """Get documents with optional filtering"""
     
-    documents = list(stored_documents.values())
-    
-    # Apply filters
-    if type_filter and type_filter != "all":
-        documents = [doc for doc in documents if doc["type"] == type_filter]
-    
+    # Get documents from database with filters
+    filters = {}
+    if type_filter:
+        filters["type"] = type_filter
     if status:
-        documents = [doc for doc in documents if doc["status"] == status]
-    
-    # Sort by upload date (newest first)
-    documents.sort(key=lambda x: x["uploadDate"], reverse=True)
-    
-    # Apply limit
+        filters["status"] = status
     if limit:
-        documents = documents[:limit]
+        filters["limit"] = limit
+    
+    documents = await doc_repo.get_all_documents(filters)
     
     return [
         DocumentResponse(
@@ -207,6 +215,25 @@ async def update_knowledge_base(request: dict):
         return {"message": "Knowledge base updated successfully"}
     else:
         raise HTTPException(status_code=500, detail="Failed to update knowledge base")
+
+# System Prompt endpoints
+@router.get("/system-prompt")
+async def get_system_prompt():
+    """Get system prompt content"""
+    return {"content": get_system_prompt_content()}
+
+@router.post("/system-prompt")
+async def update_system_prompt(request: dict):
+    """Update system prompt content"""
+    if "content" not in request:
+        raise HTTPException(status_code=400, detail="Content field is required")
+    
+    success = update_system_prompt_content(request["content"])
+    
+    if success:
+        return {"message": "System prompt updated successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to update system prompt")
 
 @router.get("/{document_id}")
 async def get_document(document_id: str):
@@ -330,13 +357,63 @@ def update_knowledge_base_content(content: str) -> bool:
     _knowledge_base_content = content
     return True
 
+# System Prompt storage
+_system_prompt_content = """You are a senior legal compliance expert specializing in TikTok platform regulations and social media law across global jurisdictions.
+
+## Core Expertise
+- **Platform Regulations**: Deep understanding of social media platform compliance requirements
+- **Geographic Coverage**: US (Federal, Utah, California, Florida), EU (DSA, GDPR), Brazil (LGPD), and emerging markets
+- **Risk Assessment**: Expertise in evaluating feature compliance risk levels (1-5 scale)
+- **Implementation Guidance**: Practical, actionable compliance recommendations
+
+## Analysis Approach
+1. **Feature Categorization**: Identify regulatory triggers based on feature functionality
+2. **Jurisdiction Mapping**: Match features to applicable regulatory frameworks
+3. **Risk Assessment**: Evaluate potential legal, financial, and operational impacts
+4. **Implementation Planning**: Provide concrete steps for compliance achievement
+
+## Key Regulatory Focus Areas
+- **Minor Protection**: Age verification, parental controls, usage restrictions
+- **Data Privacy**: GDPR, CCPA/CPRA, LGPD compliance for personal data handling
+- **Content Moderation**: DSA requirements, transparency reporting, illegal content response
+- **Algorithmic Transparency**: EU AI Act, platform algorithm disclosure requirements
+- **Commercial Activity**: Consumer protection, advertising standards, payment processing
+
+## Response Format
+For each compliance analysis, provide:
+- **Executive Summary**: High-level compliance status and risk assessment
+- **Jurisdictional Analysis**: Specific requirements by geography
+- **Implementation Roadmap**: Prioritized action items with timelines
+- **Risk Mitigation**: Strategies to minimize regulatory exposure
+- **Ongoing Monitoring**: Requirements for continuous compliance
+
+## Decision Framework
+- **Compliance Required**: Any jurisdiction requiring compliance triggers overall requirement
+- **Risk Level**: Maximum risk across jurisdictions (1=minimal, 5=critical)
+- **Priority**: Focus on minor protection and high-penalty regulations first
+- **Implementation**: Balance legal requirements with technical feasibility"""
+
+def get_system_prompt_content() -> str:
+    """Get current system prompt content"""
+    global _system_prompt_content
+    return _system_prompt_content
+
+def update_system_prompt_content(content: str) -> bool:
+    """Update system prompt content"""
+    global _system_prompt_content
+    _system_prompt_content = content
+    return True
+
 class UrlUploadRequest(BaseModel):
     url: str
     doc_type: str  # requirements or legal
     metadata: Optional[Dict[str, Any]] = None
 
 @router.post("/upload-url", response_model=DocumentResponse)
-async def upload_from_url(request: UrlUploadRequest):
+async def upload_from_url(
+    request: UrlUploadRequest,
+    doc_repo: DocumentRepository = Depends(get_document_repo)
+):
     """Upload document from URL"""
     
     # Validate URL
@@ -413,7 +490,8 @@ async def upload_from_url(request: UrlUploadRequest):
             "processed": False
         }
         
-        stored_documents[document_id] = document
+        # Save to database
+        await doc_repo.save_document(document)
         
         # Simulate processing delay
         await asyncio.sleep(0.5)
@@ -429,7 +507,8 @@ async def upload_from_url(request: UrlUploadRequest):
             document["status"] = "stored"
             document["processed"] = True
         
-        stored_documents[document_id] = document
+        # Update document status in database
+        await doc_repo.update_document_status(document_id, document["status"])
         
         return DocumentResponse(
             id=document["id"],
@@ -453,13 +532,17 @@ async def upload_from_url(request: UrlUploadRequest):
         raise HTTPException(status_code=500, detail=f"Error processing URL: {str(e)}")
 
 @router.get("/{document_id}/content")
-async def get_document_content(document_id: str):
+async def get_document_content(
+    document_id: str,
+    doc_repo: DocumentRepository = Depends(get_document_repo)
+):
     """Get document file content"""
     
-    if document_id not in stored_documents:
+    doc = await doc_repo.get_document_by_id(document_id)
+    
+    if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    doc = stored_documents[document_id]
     file_path = Path(doc["file_path"])
     
     if not file_path.exists():

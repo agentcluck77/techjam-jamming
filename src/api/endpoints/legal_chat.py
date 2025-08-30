@@ -378,6 +378,13 @@ async def _run_autonomous_agent(session_id: str, user_message: str, context: Opt
         agent_state = agent_sessions[session_id]
         logger.info(f"🤖 Starting autonomous agent loop for session {session_id}")
         
+        # Add the new user message to conversation history
+        agent_state.conversation_history.append({
+            "role": "user",
+            "content": user_message
+        })
+        logger.info(f"📝 Added user message to conversation history. Total messages: {len(agent_state.conversation_history)}")
+        
         try:
             # Main agent orchestration loop
             max_iterations = 10  # Prevent infinite loops

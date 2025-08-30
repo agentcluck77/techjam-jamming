@@ -20,7 +20,9 @@
       "Bash(lsof:*)",
       "Bash(npm run dev:*)",
       "Bash(time curl:*)",
-      "Read(/Users/aloy/Library/**)"
+      "Read(/Users/aloy/Library/**)",
+      "Bash(cd:*)",
+      "Bash(cd:*)"
     ],
     "deny": [],
     "ask": []

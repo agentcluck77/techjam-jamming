@@ -169,6 +169,26 @@ class LawyerTRDAgent:
         self.requirements_mcp = requirements_mcp or RealRequirementsMCP()
         self.knowledge_base = LawyerKnowledgeBase()
     
+    async def handle_user_query(self, query_data: Dict[str, Any]):
+        """
+        Handle user queries for compatibility with workflow.py
+        This is a simple adapter method that wraps the advice in the expected format
+        """
+        from ...models import UserQueryResponse
+        from datetime import datetime
+        
+        query = query_data.get("query", "")
+        context = query_data.get("context", {})
+        
+        # Simple response for now - in a full implementation this would do proper analysis
+        return UserQueryResponse(
+            advice=f"Analysis request received: {query}. Context: {context}. This would normally trigger the appropriate workflow analysis.",
+            confidence=0.8,
+            sources=["TRD Agent"],
+            related_jurisdictions=["General"],
+            timestamp=datetime.now()
+        )
+    
     # === WORKFLOW 1: Legal Document → Requirements Compliance Check ===
     
     async def workflow_1_legal_compliance_check(

@@ -4,10 +4,15 @@ Handles storage and retrieval of compliance analysis results.
 """
 
 import uuid
+import json
+import csv
+import io
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel
+
+from ...core.database import db_manager, ComplianceReportRepository
 
 router = APIRouter(prefix="/api/results", tags=["results"])
 
@@ -266,26 +271,88 @@ async def mark_issues_resolved(result_id: str, issue_ids: List[str] = None):
         "resolved_issues": issue_ids or "all"
     }
 
+def _generate_csv_export(reports: List[Dict]) -> Response:
+    """Generate CSV export of compliance reports"""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # CSV headers
+    writer.writerow([
+        'Document Name', 'Status', 'Summary', 'Issue Count', 
+        'High Severity Issues', 'Medium Severity Issues', 'Low Severity Issues',
+        'Analysis Date'
+    ])
+    
+    # CSV data rows
+    for report in reports:
+        issues = report.get('issues', [])
+        high_issues = len([i for i in issues if i.get('severity') == 'high'])
+        medium_issues = len([i for i in issues if i.get('severity') == 'medium'])
+        low_issues = len([i for i in issues if i.get('severity') == 'low'])
+        
+        writer.writerow([
+            report['document_name'],
+            report['status'],
+            report['summary'][:100] + '...' if len(report['summary']) > 100 else report['summary'],
+            len(issues),
+            high_issues,
+            medium_issues,
+            low_issues,
+            report['created_at']
+        ])
+    
+    # Return CSV response
+    csv_content = output.getvalue()
+    output.close()
+    
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=compliance_reports.csv"}
+    )
+
+@router.get("/document/{document_id}")
+async def get_document_report(document_id: str):
+    """Get latest compliance report for a specific document"""
+    try:
+        db_session = next(db_manager.get_db_session())
+        report_repo = ComplianceReportRepository(db_session)
+        report = await report_repo.get_report_by_document_id(document_id)
+        
+        if not report:
+            return {"has_report": False, "message": "No report found for this document"}
+        
+        return {
+            "has_report": True,
+            "report": report
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get report: {str(e)}")
+
 @router.post("/export")
 async def export_results(result_ids: List[str], format: str = "json"):
-    """Export compliance results"""
+    """Export compliance results in CSV format"""
     
-    if format not in ["json", "csv", "pdf"]:
+    if format not in ["json", "csv"]:
         raise HTTPException(status_code=400, detail="Invalid export format")
     
-    results = [
-        mock_results[result_id] 
-        for result_id in result_ids 
-        if result_id in mock_results
-    ]
-    
-    if not results:
-        raise HTTPException(status_code=404, detail="No valid results found")
-    
-    # In a real implementation, this would generate the export file
-    return {
-        "message": f"Export prepared in {format} format",
-        "results_count": len(results),
-        "export_id": str(uuid.uuid4()),
-        "download_url": f"/api/results/download/{uuid.uuid4()}.{format}"
-    }
+    try:
+        db_session = next(db_manager.get_db_session())
+        report_repo = ComplianceReportRepository(db_session)
+        reports = await report_repo.get_reports_by_ids(result_ids)
+        
+        if not reports:
+            raise HTTPException(status_code=404, detail="No valid results found")
+        
+        if format == "csv":
+            return _generate_csv_export(reports)
+        else:  # json
+            return {
+                "export_data": reports,
+                "format": "json",
+                "results_count": len(reports),
+                "exported_at": datetime.now().isoformat()
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")

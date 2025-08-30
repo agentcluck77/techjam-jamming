@@ -1,16 +1,28 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Card, CardHeader, CardContent } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import { getKnowledgeBase, updateKnowledgeBase } from '@/lib/api'
-import { Edit, Settings, Search, BookOpen, BarChart3, Brain } from 'lucide-react'
+import { Card, CardHeader, CardContent } from '../../components/ui/card'
+import { Button } from '../../components/ui/button'
+import { Textarea } from '../../components/ui/textarea'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../../components/ui/dialog'
+import { getKnowledgeBase, updateKnowledgeBase, getSystemPrompt, updateSystemPrompt } from '../../lib/api'
+import { Edit, Settings, Search, BookOpen, BarChart3, Brain, MessageSquare } from 'lucide-react'
+import MDEditor from '@uiw/react-md-editor'
+import '@uiw/react-md-editor/markdown-editor.css'
+import '@uiw/react-markdown-preview/markdown.css'
 
 export default function KnowledgeBase() {
+  const [activeTab, setActiveTab] = useState<'knowledge' | 'system'>('knowledge')
+  
+  // Knowledge Base state
   const [content, setContent] = useState('')
   const [originalContent, setOriginalContent] = useState('')
+  
+  // System Prompt state
+  const [systemPrompt, setSystemPrompt] = useState('')
+  const [originalSystemPrompt, setOriginalSystemPrompt] = useState('')
+  
+  // Shared state
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [lastSaved, setLastSaved] = useState<string | null>(null)
@@ -19,22 +31,30 @@ export default function KnowledgeBase() {
   const [showPreview, setShowPreview] = useState(false)
 
   useEffect(() => {
-    const loadKnowledgeBase = async () => {
+    const loadData = async () => {
       try {
-        const kb = await getKnowledgeBase()
+        const [kb, sp] = await Promise.all([
+          getKnowledgeBase(),
+          getSystemPrompt()
+        ])
+        
         setContent(kb)
         setOriginalContent(kb)
+        setSystemPrompt(sp)
+        setOriginalSystemPrompt(sp)
       } catch (error) {
-        console.error('Failed to load knowledge base:', error)
+        console.error('Failed to load data:', error)
         // Set default content if loading fails
         setContent(defaultKnowledgeBase)
         setOriginalContent(defaultKnowledgeBase)
+        setSystemPrompt(defaultSystemPrompt)
+        setOriginalSystemPrompt(defaultSystemPrompt)
       } finally {
         setLoading(false)
       }
     }
 
-    loadKnowledgeBase()
+    loadData()
   }, [])
 
   const handleSave = async () => {
@@ -42,19 +62,28 @@ export default function KnowledgeBase() {
     
     setSaving(true)
     try {
-      await updateKnowledgeBase(content)
-      setOriginalContent(content)
+      if (activeTab === 'knowledge') {
+        await updateKnowledgeBase(content)
+        setOriginalContent(content)
+      } else {
+        await updateSystemPrompt(systemPrompt)
+        setOriginalSystemPrompt(systemPrompt)
+      }
       setLastSaved(new Date().toLocaleTimeString())
       setHasChanges(false)
     } catch (error) {
-      console.error('Failed to save knowledge base:', error)
+      console.error(`Failed to save ${activeTab}:`, error)
     } finally {
       setSaving(false)
     }
   }
 
   const handleRevert = () => {
-    setContent(originalContent)
+    if (activeTab === 'knowledge') {
+      setContent(originalContent)
+    } else {
+      setSystemPrompt(originalSystemPrompt)
+    }
     setHasChanges(false)
   }
 
@@ -66,9 +95,15 @@ export default function KnowledgeBase() {
     setShowPreview(!showPreview)
   }
 
+
   const handleContentChange = (value: string) => {
-    setContent(value)
-    setHasChanges(true)
+    if (activeTab === 'knowledge') {
+      setContent(value)
+      setHasChanges(value !== originalContent)
+    } else {
+      setSystemPrompt(value)
+      setHasChanges(value !== originalSystemPrompt)
+    }
   }
 
   const addTemplate = (template: string) => {
@@ -121,8 +156,52 @@ export default function KnowledgeBase() {
     handleContentChange(newContent)
   }
 
-  const wordCount = content.split(/\s+/).filter(word => word.length > 0).length
-  const charCount = content.length
+  const addSystemPromptTemplate = (template: string) => {
+    const templates = {
+      expertise: `
+## Additional Expertise
+- **Emerging Regulations**: Stay current with new social media regulations
+- **Industry Standards**: Understanding of platform-specific compliance practices
+- **Cross-Border Considerations**: Multi-jurisdictional compliance strategies
+`,
+      instructions: `
+## Analysis Instructions
+1. **Feature Assessment**: Evaluate regulatory triggers systematically
+2. **Risk Prioritization**: Focus on high-impact compliance requirements first
+3. **Practical Solutions**: Provide implementable recommendations
+4. **Timeline Consideration**: Account for regulatory deadlines and implementation complexity
+`,
+      format: `
+## Response Format Requirements
+- **Executive Summary**: 2-3 sentence overview of compliance status
+- **Detailed Analysis**: Jurisdiction-specific requirements and rationale
+- **Action Items**: Prioritized implementation steps with timelines
+- **Risk Assessment**: Clear 1-5 scale with justification
+`,
+      considerations: `
+## Key Considerations
+- **Minor Protection**: Always prioritize user safety, especially for minors
+- **Data Minimization**: Recommend minimal data collection approaches
+- **Transparency**: Emphasize clear user communication and disclosure
+- **Proportionality**: Balance compliance requirements with user experience
+`,
+      examples: `
+## Example Analysis Framework
+**Feature**: [Name]
+**Trigger Analysis**: [What regulations apply]
+**Compliance Gap**: [What needs to be implemented]
+**Implementation**: [Specific steps]
+**Timeline**: [Realistic timeframe]
+`
+    }
+    
+    const newContent = systemPrompt + templates[template as keyof typeof templates]
+    handleContentChange(newContent)
+  }
+
+  const currentContent = activeTab === 'knowledge' ? content : systemPrompt
+  const wordCount = currentContent.split(/\s+/).filter(word => word.length > 0).length
+  const charCount = currentContent.length
 
   if (loading) {
     return (
@@ -145,10 +224,10 @@ export default function KnowledgeBase() {
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
               <Brain className="w-5 h-5 mr-2" />
-              Agent Knowledge Base
+              Agent Configuration
             </h1>
             <p className="text-gray-600 mt-2">
-              Customize lawyer agent domain expertise
+              Customize lawyer agent behavior and knowledge
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -172,13 +251,33 @@ export default function KnowledgeBase() {
           </div>
         </div>
 
-        {/* Knowledge Editor */}
+        {/* Tab Navigation */}
+        <div className="flex space-x-1 bg-white p-1 rounded-lg border">
+          <Button
+            variant={activeTab === 'knowledge' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('knowledge')}
+            className="flex items-center gap-2"
+          >
+            <Brain className="w-4 h-4" />
+            Knowledge Base
+          </Button>
+          <Button
+            variant={activeTab === 'system' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('system')}
+            className="flex items-center gap-2"
+          >
+            <MessageSquare className="w-4 h-4" />
+            System Prompt
+          </Button>
+        </div>
+
+        {/* Content Editor */}
         <Card className="bg-white">
           <CardHeader>
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                 <Edit className="w-5 h-5 mr-2" />
-                Customize Agent Expertise
+                {activeTab === 'knowledge' ? 'Customize Agent Expertise' : 'Configure Agent Instructions'}
               </h2>
               <div className="text-sm text-gray-500">
                 {hasChanges && (
@@ -191,11 +290,18 @@ export default function KnowledgeBase() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Textarea
-              value={content}
-              onChange={(e) => handleContentChange(e.target.value)}
-              className="min-h-[400px] font-mono text-sm"
-              placeholder="Enter your knowledge base content here..."
+            <MDEditor
+              value={currentContent}
+              onChange={(val) => handleContentChange(val || '')}
+              height={400}
+              preview="edit"
+              data-color-mode="light"
+              textareaProps={{
+                placeholder: activeTab === 'knowledge' 
+                  ? "Enter your knowledge base content here..." 
+                  : "Enter system prompt instructions here...",
+                style: { fontSize: 14, fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Monaco, Consolas, "Liberation Mono", "Courier New", monospace' }
+              }}
             />
             
             <div className="flex items-center justify-between text-sm text-gray-500 border-t pt-4">
@@ -207,16 +313,17 @@ export default function KnowledgeBase() {
           </CardContent>
         </Card>
 
-        {/* Content Templates */}
-        <Card className="bg-white">
-          <CardHeader>
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <Settings className="w-5 h-5 mr-2" />
-              Quick Add Sections
-            </h2>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {/* Content Templates - Only for Knowledge Base */}
+        {activeTab === 'knowledge' && (
+          <Card className="bg-white">
+            <CardHeader>
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Settings className="w-5 h-5 mr-2" />
+                Quick Add Sections
+              </h2>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <Button 
                 variant="outline" 
                 size="sm"
@@ -262,19 +369,72 @@ export default function KnowledgeBase() {
             </div>
           </CardContent>
         </Card>
+        )}
+
+        {/* System Prompt Templates - Only for System Prompt */}
+        {activeTab === 'system' && (
+          <Card className="bg-white">
+            <CardHeader>
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <MessageSquare className="w-5 h-5 mr-2" />
+                System Prompt Templates
+              </h2>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => addSystemPromptTemplate('expertise')}
+                >
+                  + Expertise Areas
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => addSystemPromptTemplate('instructions')}
+                >
+                  + Analysis Instructions
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => addSystemPromptTemplate('format')}
+                >
+                  + Response Format
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => addSystemPromptTemplate('considerations')}
+                >
+                  + Key Considerations
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => addSystemPromptTemplate('examples')}
+                >
+                  + Examples
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Impact Preview */}
         <Card className="bg-white">
           <CardHeader>
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
               <Search className="w-5 h-5 mr-2" />
-              How This Enhances Analysis
+              {activeTab === 'knowledge' ? 'How This Enhances Analysis' : 'How This Guides Agent Behavior'}
             </h2>
           </CardHeader>
           <CardContent>
             <p className="text-gray-700 mb-4">
-              Your knowledge base is automatically included in every compliance analysis to provide 
-              TikTok-specific context and improve accuracy.
+              {activeTab === 'knowledge' 
+                ? 'Your knowledge base is automatically included in every compliance analysis to provide TikTok-specific context and improve accuracy.'
+                : 'The system prompt defines how the legal agent analyzes features and provides compliance recommendations.'}
             </p>
             <Button variant="outline" onClick={togglePreview}>
               {showPreview ? 'Hide Preview' : 'Preview Enhanced Prompt'}
@@ -366,7 +526,7 @@ export default function KnowledgeBase() {
                   <br/>
                   <p className="font-semibold">Additional Knowledge Base Context:</p>
                   <div className="bg-green-100 p-2 rounded mt-2 max-h-40 overflow-y-auto">
-                    {content || "Your knowledge base content will appear here..."}
+                    {currentContent || `Your ${activeTab === 'knowledge' ? 'knowledge base' : 'system prompt'} content will appear here...`}
                   </div>
                   <br/>
                   <p>Use this context to provide more accurate and TikTok-specific analysis.</p>
@@ -425,3 +585,38 @@ const defaultKnowledgeBase = `# TikTok Terminology
 ## Feature Components
 - **jellybean** = individual feature component within the platform
 - **hashtag challenge** = trending challenge campaign format`
+
+const defaultSystemPrompt = `You are a senior legal compliance expert specializing in TikTok platform regulations and social media law across global jurisdictions.
+
+## Core Expertise
+- **Platform Regulations**: Deep understanding of social media platform compliance requirements
+- **Geographic Coverage**: US (Federal, Utah, California, Florida), EU (DSA, GDPR), Brazil (LGPD), and emerging markets
+- **Risk Assessment**: Expertise in evaluating feature compliance risk levels (1-5 scale)
+- **Implementation Guidance**: Practical, actionable compliance recommendations
+
+## Analysis Approach
+1. **Feature Categorization**: Identify regulatory triggers based on feature functionality
+2. **Jurisdiction Mapping**: Match features to applicable regulatory frameworks
+3. **Risk Assessment**: Evaluate potential legal, financial, and operational impacts
+4. **Implementation Planning**: Provide concrete steps for compliance achievement
+
+## Key Regulatory Focus Areas
+- **Minor Protection**: Age verification, parental controls, usage restrictions
+- **Data Privacy**: GDPR, CCPA/CPRA, LGPD compliance for personal data handling
+- **Content Moderation**: DSA requirements, transparency reporting, illegal content response
+- **Algorithmic Transparency**: EU AI Act, platform algorithm disclosure requirements
+- **Commercial Activity**: Consumer protection, advertising standards, payment processing
+
+## Response Format
+For each compliance analysis, provide:
+- **Executive Summary**: High-level compliance status and risk assessment
+- **Jurisdictional Analysis**: Specific requirements by geography
+- **Implementation Roadmap**: Prioritized action items with timelines
+- **Risk Mitigation**: Strategies to minimize regulatory exposure
+- **Ongoing Monitoring**: Requirements for continuous compliance
+
+## Decision Framework
+- **Compliance Required**: Any jurisdiction requiring compliance triggers overall requirement
+- **Risk Level**: Maximum risk across jurisdictions (1=minimal, 5=critical)
+- **Priority**: Focus on minor protection and high-penalty regulations first
+- **Implementation**: Balance legal requirements with technical feasibility`

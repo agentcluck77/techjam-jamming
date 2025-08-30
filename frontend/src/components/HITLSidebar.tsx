@@ -10,10 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectLa
 import { useWorkflowStore } from '@/lib/stores'
 // All analysis now handled by lawyer agent - no legacy workflow imports needed
 import { cn } from '@/lib/utils'
-import { Send, Bot, User, ChevronDown, ChevronRight, Settings, X, Check, XIcon, Code, AlertTriangle, RotateCcw, Brain, MessageSquarePlus, List } from 'lucide-react'
+import { Send, Bot, User, ChevronDown, ChevronRight, Settings, X, Check, XIcon, Code, AlertTriangle, RotateCcw, Brain, MessageSquarePlus, List, Loader2 } from 'lucide-react'
 import { ChatList } from './ChatList'
 import { MentionTextarea } from './MentionTextarea'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 interface HITLPrompt {
   prompt_id: string
@@ -81,6 +82,7 @@ function MarkdownContent({ content, className = '' }: { content: string, classNa
   return (
     <div className={cn("markdown-content", className)}>
       <ReactMarkdown 
+        remarkPlugins={[remarkGfm]}
         components={{
           // Custom components for better styling in chat bubbles
           h1: ({ children }) => <h1 className="text-sm font-bold mb-1 mt-0 leading-tight">{children}</h1>,
@@ -116,23 +118,36 @@ function MarkdownContent({ content, className = '' }: { content: string, classNa
             </a>
           ),
           table: ({ children }) => (
-            <div className="overflow-x-auto my-1">
-              <table className="min-w-full text-xs border-collapse border border-gray-300">{children}</table>
+            <div className="overflow-x-auto my-3 rounded-lg border border-gray-200 shadow-sm bg-white">
+              <table className="min-w-full text-xs border-collapse">{children}</table>
             </div>
           ),
-          thead: ({ children }) => <thead className="bg-gray-100">{children}</thead>,
-          tbody: ({ children }) => <tbody>{children}</tbody>,
-          tr: ({ children }) => <tr className="border-b border-gray-200">{children}</tr>,
+          thead: ({ children }) => <thead className="bg-gray-50 border-b-2 border-gray-200">{children}</thead>,
+          tbody: ({ children }) => <tbody className="bg-white">{children}</tbody>,
+          tr: ({ children }) => <tr className="border-b border-gray-100 hover:bg-gray-50/50">{children}</tr>,
           th: ({ children }) => (
-            <th className="border border-gray-300 px-2 py-1 font-semibold text-left">
+            <th className="px-4 py-3 font-semibold text-left text-gray-900 text-xs uppercase tracking-wide">
               {children}
             </th>
           ),
-          td: ({ children }) => (
-            <td className="border border-gray-300 px-2 py-1">
-              {children}
-            </td>
-          ),
+          td: ({ children }) => {
+            const cellText = typeof children === 'string' ? children : ''
+            // Add priority/risk-specific styling
+            const isPriority = /^P[0-9]/.test(cellText)
+            const isHighRisk = /very high|high/i.test(cellText) 
+            const isMediumRisk = /medium/i.test(cellText)
+            
+            return (
+              <td className={cn(
+                "px-4 py-3 text-gray-700 border-r border-gray-100 last:border-r-0",
+                isPriority && "font-mono font-semibold",
+                isHighRisk && "bg-red-50 text-red-800 font-medium",
+                isMediumRisk && "bg-yellow-50 text-yellow-800"
+              )}>
+                {children}
+              </td>
+            )
+          },
           hr: () => <hr className="my-2 border-gray-300" />,
         }}
       >
@@ -622,6 +637,12 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
         // FIRST: Process any MCP executions to display results
         if (result.mcp_executions && result.mcp_executions.length > 0) {
           console.log('🔍 Adding MCP messages:', result.mcp_executions)
+          
+          // Clear awaiting_mcp_result flag from any approved messages
+          setChatMessages(prev => prev.map(msg => 
+            msg.awaiting_mcp_result ? { ...msg, awaiting_mcp_result: false } : msg
+          ))
+          
           result.mcp_executions.forEach((mcpExec: any) => {
             const mcpMessage: ChatMessage = {
               id: `mcp-${Date.now()}-${Math.random()}`,
@@ -1098,6 +1119,8 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
                       )}>
                         {message.type === 'mcp_call' ? (
                           <Settings className="w-4 h-4 text-green-600" />
+                        ) : message.awaiting_mcp_result ? (
+                          <Loader2 className="w-4 h-4 text-green-600 animate-spin" />
                         ) : (
                           <Bot className={cn(
                             "w-4 h-4",
@@ -1243,18 +1266,14 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
                 </div>
               ))}
               
-              {/* Typing indicator */}
+              {/* Typing indicator with spinner */}
               {isQuerying && (
                 <div className="flex items-start gap-2">
                   <div className="w-7 h-7 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <Bot className="w-4 h-4 text-blue-600" />
+                    <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
                   </div>
-                  <div className="bg-gray-100 rounded-lg rounded-bl-sm px-3 py-2">
-                    <div className="flex gap-1">
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                    </div>
+                  <div className="bg-gray-100 rounded-lg rounded-bl-sm px-3 py-2 text-sm text-gray-700">
+                    Thinking...
                   </div>
                 </div>
               )}

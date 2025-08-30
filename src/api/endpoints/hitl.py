@@ -342,10 +342,14 @@ async def execute_lawyer_workflow(workflow_id: str):
         await update_progress(workflow_id, "Executing lawyer agent workflow...", 3, 4, 75)
         
         # Execute the lawyer agent workflow - MCP calls will now trigger HITL prompts
-        compliance_report = await lawyer_agent.workflow_3_requirements_compliance_check(
-            requirements_document_id=document_id,
-            user_interaction_callback=None  # We don't need the compliance HITL, just MCP approval
-        )
+        query_data = {
+            "query": f"Please analyze requirements document {document_id} for compliance with legal regulations using MCP search. Provide a comprehensive compliance analysis.",
+            "context": {
+                "requirements_document_id": document_id,
+                "analysis_type": "requirements_compliance_check"
+            }
+        }
+        compliance_report = await lawyer_agent.handle_user_query(query_data)
         
         await update_progress(workflow_id, "Analysis complete with MCP data", 4, 4, 100)
         

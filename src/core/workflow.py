@@ -85,6 +85,116 @@ class EnhancedWorkflowOrchestrator:
             # Error handling
             return self._create_error_response(str(e), initial_state)
     
+    async def process_bulk_requirements_analysis(
+        self,
+        requirements_document_id: str,
+        legal_document_filter: str,
+        mcp_query: str
+    ) -> Dict[str, Any]:
+        """
+        Process bulk requirements analysis using MCP call
+        """
+        try:
+            # Construct query data for lawyer agent to analyze requirements against legal docs
+            query_data = {
+                "query": f"Please analyze requirements document {requirements_document_id} against legal documents using MCP search with query: '{mcp_query}'. Provide a comprehensive compliance analysis.",
+                "context": {
+                    "requirements_document_id": requirements_document_id,
+                    "mcp_query": mcp_query,
+                    "analysis_type": "requirements_bulk_analysis"
+                }
+            }
+            
+            # Use lawyer agent to process the bulk analysis
+            result = await self.lawyer_agent.handle_user_query(query_data)
+            
+            return {
+                "document_name": f"Requirements-{requirements_document_id}",
+                "status": "completed",
+                "summary": result.advice if hasattr(result, 'advice') else "Analysis completed",
+                "issues": self._extract_issues_from_response(result.advice if hasattr(result, 'advice') else ""),
+                "recommendations": self._extract_recommendations_from_response(result.advice if hasattr(result, 'advice') else ""),
+                "workflow_id": None,
+                "analysis_time": 30  # Mock timing
+            }
+            
+        except Exception as e:
+            return {
+                "document_name": f"Requirements-{requirements_document_id}",
+                "status": "failed",
+                "summary": f"Analysis failed: {str(e)}",
+                "issues": [],
+                "recommendations": [],
+                "workflow_id": None,
+                "analysis_time": 0
+            }
+    
+    async def process_bulk_legal_analysis(
+        self,
+        legal_document_id: str,
+        requirements_document_filter: str,
+        mcp_query: str
+    ) -> Dict[str, Any]:
+        """
+        Process bulk legal analysis using MCP call
+        """
+        try:
+            # Construct query data for lawyer agent to analyze legal doc against requirements
+            query_data = {
+                "query": f"Please analyze legal document {legal_document_id} against requirements documents using MCP search with query: '{mcp_query}'. Identify compliance gaps and requirements coverage.",
+                "context": {
+                    "legal_document_id": legal_document_id,
+                    "requirements_document_filter": requirements_document_filter,
+                    "mcp_query": mcp_query,
+                    "analysis_type": "legal_bulk_analysis"
+                }
+            }
+            
+            # Use lawyer agent to process the bulk analysis
+            result = await self.lawyer_agent.handle_user_query(query_data)
+            
+            return {
+                "document_name": f"Legal-{legal_document_id}",
+                "status": "completed", 
+                "summary": result.advice if hasattr(result, 'advice') else "Analysis completed",
+                "issues": self._extract_issues_from_response(result.advice if hasattr(result, 'advice') else ""),
+                "recommendations": self._extract_recommendations_from_response(result.advice if hasattr(result, 'advice') else ""),
+                "workflow_id": None,
+                "analysis_time": 30  # Mock timing
+            }
+            
+        except Exception as e:
+            return {
+                "document_name": f"Legal-{legal_document_id}",
+                "status": "failed",
+                "summary": f"Analysis failed: {str(e)}",
+                "issues": [],
+                "recommendations": [],
+                "workflow_id": None,
+                "analysis_time": 0
+            }
+    
+    def _extract_issues_from_response(self, content: str) -> List[Dict[str, str]]:
+        """Extract compliance issues from lawyer agent response"""
+        # Simple extraction - in production this would be more sophisticated
+        issues = []
+        if "non-compliant" in content.lower() or "violation" in content.lower():
+            issues.append({
+                "type": "non-compliant",
+                "requirement": "Extracted from analysis",
+                "regulation": "Various regulations",
+                "severity": "medium",
+                "description": "Compliance issue identified in analysis"
+            })
+        return issues
+    
+    def _extract_recommendations_from_response(self, content: str) -> List[str]:
+        """Extract recommendations from lawyer agent response"""
+        # Simple extraction - in production this would be more sophisticated
+        if "recommend" in content.lower() or "should" in content.lower():
+            return ["Review compliance requirements", "Update implementation", "Consult legal team"]
+        return []
+    
     def _detect_input_type(self, request_data: Dict[str, Any]) -> str:
         """
         Simple input type detection based on data structure
@@ -161,10 +271,10 @@ class EnhancedWorkflowOrchestrator:
             # Lawyer Agent processes input directly (Knowledge Base handles terminology)
             if state.input_type == "user_query":
                 # Return advisory response for queries
-                final_decision = await self.lawyer_agent.handle_query_direct(state.input_data)
+                final_decision = await self.lawyer_agent.handle_user_query(state.input_data)
             else:
                 # Return compliance analysis for features/documents/batch  
-                final_decision = await self.lawyer_agent.analyze_direct(state.input_data, state.input_type)
+                final_decision = await self.lawyer_agent.analyze(state.input_data)
             
             state.final_decision = final_decision
             

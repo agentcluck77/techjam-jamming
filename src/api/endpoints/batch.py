@@ -11,12 +11,12 @@ from datetime import datetime
 
 from ...core.models import FeatureAnalysisRequest, FeatureAnalysisResponse
 from ...core.workflow import EnhancedWorkflowOrchestrator
+from ...core.database import db_manager, ComplianceReportRepository, BatchJobDB
 
 router = APIRouter(prefix="/api/v1/batch", tags=["batch"])
 
-# TODO: Team Member 2 - Initialize with proper dependencies
-# workflow = EnhancedWorkflowOrchestrator()
-batch_jobs = {}  # In-memory job tracking - TODO: Move to database
+workflow = EnhancedWorkflowOrchestrator()
+batch_jobs = {}  # In-memory job tracking
 
 @router.post("/upload-csv")
 async def upload_csv_for_batch_processing(
@@ -291,29 +291,235 @@ async def _process_batch_features(job_id: str, features: List[Dict[str, Any]]) -
         job['completion_time'] = datetime.now()
         job['errors'].append({'error': f"Batch processing failed: {str(e)}"})
 
-def _generate_batch_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+@router.post("/requirements-bulk-analysis")
+async def start_bulk_requirements_analysis(
+    requirements_document_ids: List[str],
+    legal_document_ids: Optional[List[str]] = None,
+    background_tasks: BackgroundTasks = None
+) -> Dict[str, Any]:
     """
-    TODO: Team Member 2 - Generate summary statistics for batch results
+    Start bulk analysis of requirements documents against legal documents
     
     Args:
-        results: List of analysis results
+        requirements_document_ids: List of requirements document IDs to analyze
+        legal_document_ids: Optional list of legal document IDs to check against (all if None)
         
     Returns:
-        Summary statistics
+        Batch job information with job ID for tracking
     """
+    try:
+        job_id = str(uuid.uuid4())
+        
+        # Create batch job tracking
+        batch_jobs[job_id] = {
+            'id': job_id,
+            'type': 'bulk_requirements',
+            'status': 'processing',
+            'requirements_docs': requirements_document_ids,
+            'legal_docs': legal_document_ids or [],
+            'total_documents': len(requirements_document_ids),
+            'processed_documents': 0,
+            'results': [],
+            'errors': [],
+            'start_time': datetime.now(),
+            'report_ids': []
+        }
+        
+        # Start background processing
+        if background_tasks:
+            background_tasks.add_task(_process_bulk_requirements, job_id, requirements_document_ids, legal_document_ids)
+        
+        return {
+            'job_id': job_id,
+            'status': 'processing',
+            'type': 'bulk_requirements',
+            'total_documents': len(requirements_document_ids),
+            'message': f'Started bulk analysis for {len(requirements_document_ids)} requirements documents'
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start bulk analysis: {str(e)}")
+
+@router.post("/legal-bulk-analysis") 
+async def start_bulk_legal_analysis(
+    legal_document_ids: List[str],
+    requirements_document_ids: Optional[List[str]] = None,
+    background_tasks: BackgroundTasks = None
+) -> Dict[str, Any]:
+    """
+    Start bulk analysis of legal documents against requirements documents
+    
+    Args:
+        legal_document_ids: List of legal document IDs to analyze
+        requirements_document_ids: Optional list of requirements document IDs to check against (all if None)
+        
+    Returns:
+        Batch job information with job ID for tracking
+    """
+    try:
+        job_id = str(uuid.uuid4())
+        
+        batch_jobs[job_id] = {
+            'id': job_id,
+            'type': 'bulk_legal',
+            'status': 'processing',
+            'legal_docs': legal_document_ids,
+            'requirements_docs': requirements_document_ids or [],
+            'total_documents': len(legal_document_ids),
+            'processed_documents': 0,
+            'results': [],
+            'errors': [],
+            'start_time': datetime.now(),
+            'report_ids': []
+        }
+        
+        if background_tasks:
+            background_tasks.add_task(_process_bulk_legal, job_id, legal_document_ids, requirements_document_ids)
+        
+        return {
+            'job_id': job_id,
+            'status': 'processing', 
+            'type': 'bulk_legal',
+            'total_documents': len(legal_document_ids),
+            'message': f'Started bulk analysis for {len(legal_document_ids)} legal documents'
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start bulk analysis: {str(e)}")
+
+async def _process_bulk_requirements(job_id: str, requirements_doc_ids: List[str], legal_doc_ids: Optional[List[str]]) -> None:
+    """Background task to process requirements documents against legal documents"""
+    job = batch_jobs[job_id]
+    
+    try:
+        db_session = next(db_manager.get_db_session())
+        report_repo = ComplianceReportRepository(db_session)
+        
+        for i, req_doc_id in enumerate(requirements_doc_ids):
+            try:
+                # Build MCP query for this requirements document against legal documents
+                if legal_doc_ids:
+                    legal_filter = f" AND document_id IN ({','.join([f'doc-{doc_id}' for doc_id in legal_doc_ids])})"
+                else:
+                    legal_filter = ""
+                
+                mcp_query = f"document_id:{req_doc_id}{legal_filter}"
+                
+                # Use workflow to process via lawyer agent with MCP call
+                result = await workflow.process_bulk_requirements_analysis(
+                    requirements_document_id=req_doc_id,
+                    legal_document_filter=legal_filter,
+                    mcp_query=mcp_query
+                )
+                
+                # Save report to database
+                report_data = {
+                    "document_id": req_doc_id,
+                    "document_name": result.get("document_name", f"Requirements-{req_doc_id}"),
+                    "document_type": "requirements",
+                    "analysis_type": "bulk_requirements",
+                    "related_documents": legal_doc_ids or [],
+                    "status": result.get("status", "completed"),
+                    "summary": result.get("summary", ""),
+                    "issues": result.get("issues", []),
+                    "recommendations": result.get("recommendations", []),
+                    "workflow_id": result.get("workflow_id"),
+                    "analysis_time_seconds": int(result.get("analysis_time", 0))
+                }
+                
+                report_id = await report_repo.save_report(report_data)
+                job['results'].append(result)
+                job['report_ids'].append(report_id)
+                job['processed_documents'] += 1
+                
+            except Exception as e:
+                error = {
+                    'document_id': req_doc_id,
+                    'error': str(e),
+                    'index': i
+                }
+                job['errors'].append(error)
+        
+        job['status'] = 'completed'
+        job['completion_time'] = datetime.now()
+        
+    except Exception as e:
+        job['status'] = 'failed'
+        job['completion_time'] = datetime.now()
+        job['errors'].append({'error': f"Bulk processing failed: {str(e)}"})
+
+async def _process_bulk_legal(job_id: str, legal_doc_ids: List[str], requirements_doc_ids: Optional[List[str]]) -> None:
+    """Background task to process legal documents against requirements documents"""
+    job = batch_jobs[job_id]
+    
+    try:
+        db_session = next(db_manager.get_db_session())
+        report_repo = ComplianceReportRepository(db_session)
+        
+        for i, legal_doc_id in enumerate(legal_doc_ids):
+            try:
+                # Build MCP query for this legal document against requirements documents
+                if requirements_doc_ids:
+                    req_filter = f" AND document_id IN ({','.join([f'req-{doc_id}' for doc_id in requirements_doc_ids])})"
+                else:
+                    req_filter = ""
+                
+                mcp_query = f"document_id:{legal_doc_id}{req_filter}"
+                
+                # Use workflow to process via lawyer agent with MCP call
+                result = await workflow.process_bulk_legal_analysis(
+                    legal_document_id=legal_doc_id,
+                    requirements_document_filter=req_filter,
+                    mcp_query=mcp_query
+                )
+                
+                # Save report to database
+                report_data = {
+                    "document_id": legal_doc_id,
+                    "document_name": result.get("document_name", f"Legal-{legal_doc_id}"),
+                    "document_type": "legal",
+                    "analysis_type": "bulk_legal",
+                    "related_documents": requirements_doc_ids or [],
+                    "status": result.get("status", "completed"),
+                    "summary": result.get("summary", ""),
+                    "issues": result.get("issues", []),
+                    "recommendations": result.get("recommendations", []),
+                    "workflow_id": result.get("workflow_id"),
+                    "analysis_time_seconds": int(result.get("analysis_time", 0))
+                }
+                
+                report_id = await report_repo.save_report(report_data)
+                job['results'].append(result)
+                job['report_ids'].append(report_id)
+                job['processed_documents'] += 1
+                
+            except Exception as e:
+                error = {
+                    'document_id': legal_doc_id,
+                    'error': str(e),
+                    'index': i
+                }
+                job['errors'].append(error)
+        
+        job['status'] = 'completed'
+        job['completion_time'] = datetime.now()
+        
+    except Exception as e:
+        job['status'] = 'failed'
+        job['completion_time'] = datetime.now()
+        job['errors'].append({'error': f"Bulk processing failed: {str(e)}"})
+
+def _generate_batch_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Generate summary statistics for batch results"""
     if not results:
         return {'total': 0, 'compliance_required': 0, 'average_risk': 0}
     
     total = len(results)
     compliance_required = len([r for r in results if r.get('compliance_required', False)])
     
-    # TODO: Team Member 2 - Calculate additional statistics
-    # average_risk = sum(r.get('risk_level', 0) for r in results) / total
-    
     return {
         'total_features': total,
         'compliance_required': compliance_required,
         'compliance_rate': (compliance_required / total) * 100,
         'no_compliance': total - compliance_required
-        # 'average_risk_level': average_risk
     }
