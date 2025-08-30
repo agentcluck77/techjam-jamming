@@ -18,7 +18,7 @@ def chunk_by_chapter(text: str) -> List[str]:
     # Split while keeping the chapter headers in the chunks
     splits = re.split(pattern, text, flags=re.IGNORECASE)
     
-    
+
     chunks = []
     i = 0
     while i < len(splits):
@@ -38,7 +38,7 @@ def chunk_by_chapter(text: str) -> List[str]:
     return chunks
 
 
-def conditional_chunk(text: str, min_words: int = 500) -> List[str]:
+def conditional_chunk(text: str, min_words: int = 10000) -> List[str]:
     """
     Only chunk the text if it exceeds `min_words`.
     Otherwise, return the text as a single-element list.
