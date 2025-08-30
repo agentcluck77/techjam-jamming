@@ -194,9 +194,11 @@ You are a legal text parser. Your task is to read the legal regulations text and
 Rules:
 - Each output object must have exactly two keys:
   1. "law_id": the section or article identifier (e.g., "Article 1", "Section 2.1").
+    - Only extract references to codified statutes, e.g., numbers like 171.02, 120.45, etc. Ignore internal bill section numbers like Section 1, Section 4, etc.
     - Each law_id must only start with "Section" or "Article" (E.g. "Section 1.236", "Article 2.345")
     - Ignore very general numbers like "Section 1" if a more specific number exists in the same clause.
     - Once "Article" or "Section" has been found, the following text will be "regulation" until the next "Article" or "Section" is found
+    - Only extract references to codified statutes, e.g., numbers like 171.02, 120.45, etc. Ignore internal bill section numbers like Section 1, Section 4, etc.
     
   2. "regulation": the full text of that section/article, preserving punctuation but removing extra line breaks.
 - Preserve the order of sections as they appear in the document.

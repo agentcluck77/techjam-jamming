@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*.local
+.gitignore
 
 # Python
 __pycache__/
@@ -29,6 +30,8 @@ wheels/
 venv/
 env/
 ENV/
+viv/
+infodump/
 
 # IDE
 .vscode/

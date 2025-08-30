@@ -6,29 +6,31 @@
 -- regulations: "Very large online platforms that are likely to be accessed by minors shall..."}
 
 CREATE TABLE IF NOT EXISTS techjam.t_law_{{region}}_regulations (
-    file_location VARCHAR(255),
-    statute VARCHAR(255), 
-    law_id VARCHAR(255),
-    regulations VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    file_location TEXT,
+    statute TEXT, 
+    law_id TEXT,
+    regulations TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+CONSTRAINT unique_law_id UNIQUE (law_id)
 );
 
 -- Create law definitions table for each location
 CREATE TABLE IF NOT EXISTS techjam.t_law_{{region}}_definitions (
-    file_location VARCHAR(255),
-    region VARCHAR(255),
-    statute VARCHAR(255),
-    definitions VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    file_location TEXT,
+    region TEXT,
+    statute TEXT,
+    definitions TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+CONSTRAINT unique_statute_region UNIQUE (statute, region)
 );
 
 -- Create PRD table for all PRDs
 CREATE TABLE IF NOT EXISTS techjam.t_prd (
-    file_location VARCHAR(255),
-    feature VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    relevant_laws VARCHAR(255)
+    file_location TEXT,
+    feature TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    relevant_laws TEXT
 )

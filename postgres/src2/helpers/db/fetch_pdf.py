@@ -1,5 +1,4 @@
 import sys
-import os
 # Add the project root directory to Python path
 sys.path.insert(0, r'C:\Users\xinti\OneDrive\Desktop\techjam-jamming')
 
@@ -15,11 +14,13 @@ async def parse_and_clean(pdf_path: str) -> str:
 
 async def split_into_json_for_step2(json_str: str):
     data = json.loads(json_str)
-    regu = data.get("regulations", [])
+    
+    # data is already a list of regulation dicts
     regulations = []
-    for reg in regu:
+    for reg in data:
         law_id = reg.get("law_id", "")
         details = reg.get("regulation", "")
         regulations.append({"law_id": law_id, "regulation": details})
     
-    return [regulations]
+    print(regulations)
+    return regulations

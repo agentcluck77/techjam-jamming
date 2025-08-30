@@ -16,6 +16,7 @@ class Definitions:
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
+@dataclass
 class Regulations:
     file_location: str
     statute: str
@@ -38,67 +39,74 @@ class CommonQueries:
         self.db = db
 
     async def upsert_definitions(self, data: Definitions, region) -> DbQueryResult:
-        try:
-            query = f"""
-            INSERT INTO techjam.t_law_{region}_definitions (
-                
-            ) VALUES (
-                $1, $2, $3, $4::jsonb, $5, $6
-            )
-            ON CONFLICT (id) DO UPDATE SET
-                file_location = EXCLUDED.file_location,
-                statute = EXCLUDED.statute,
-                region = EXCLUDED.region,
-                definitions = EXCLUDED.definitions,                
-                created_at = EXCLUDED.created_at,
-                updated_at = EXCLUDED.updated_at
+        query = f"""
+        INSERT INTO techjam.t_law_{region}_definitions (
+            file_location, region, statute, definitions, created_at, updated_at
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6
+        )
+        ON CONFLICT (statute, region) DO UPDATE SET
+            file_location = EXCLUDED.file_location,
+            statute = EXCLUDED.statute,
+            region = EXCLUDED.region,
+            definitions = EXCLUDED.definitions,                
+            created_at = EXCLUDED.created_at,
+            updated_at = EXCLUDED.updated_at
+        """
 
-            RETURNING id;
-            """
-            params = [
-                data.file_location,
-                data.region or region,
-                data.statute,
-                data.definitions,
-                data.created_at or datetime.now(timezone.utc),
-                data.updated_at or datetime.now(timezone.utc),
-            ]
-            logger.debug(f"Query: {query}, Params: {params}")
-            await self.db.execute(query, params)
+        params = [
+            data.file_location,
+            data.region or region,
+            data.statute,
+            data.definitions,
+            data.created_at or datetime.now(timezone.utc),
+            data.updated_at or datetime.now(timezone.utc)
+        ]
+
+        # Log BEFORE execution so you can see them even if execution fails
+        logger.debug(f"Query: {query}")
+        logger.debug(f"Params: {params}")
+
+        try:
+            await self.db.execute(query, *params)
             logger.debug(f"Upserted law definitions of region {region}")
             return {"success": True, "data": None}
         except Exception as e:
-            logger.error(f"Failed to upsert law definitions of region {region}: {e}")
+            # Also include query & params in the exception log for full visibility
+            logger.error(f"Failed to upsert law definitions of region {region}: {e}\nQuery: {query}\nParams: {params}")
             return {"success": False, "error": str(e)}
 
+
     async def upsert_regulations(self, data: Regulations, region) -> DbQueryResult:
+        query = f"""
+        INSERT INTO techjam.t_law_{region}_regulations (
+            file_location, statute, law_id, regulations, created_at, updated_at            
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6
+        )
+        ON CONFLICT (law_id) DO UPDATE SET
+            file_location = EXCLUDED.file_location,
+            statute = EXCLUDED.statute,
+            law_id = EXCLUDED.law_id,
+            regulations = EXCLUDED.regulations,
+            created_at = EXCLUDED.created_at,
+            updated_at = EXCLUDED.updated_at
+            
+        RETURNING law_id;
+        """
+        params = [
+            data.file_location,
+            data.statute,
+            data.law_id,
+            data.regulations,
+            data.created_at or datetime.now(timezone.utc),
+            data.updated_at or datetime.now(timezone.utc)
+        ]
+        logger.debug(f"Query: {query}")
+        logger.debug(f"Params: {params}")
+
         try:
-            query = f"""
-            INSERT INTO techjam.t_law_{region}_regulations (
-                
-            ) VALUES (
-                $1, $2, $3, $4::json, $5, $6
-            )
-            ON CONFLICT (id) DO UPDATE SET
-                file_location = EXCLUDED.file_location,
-                statute = EXCLUDED.statute,
-                law_id = EXCLUDED.law_id,
-                regulations = EXCLUDED.regulations,
-                created_at = EXCLUDED.created_at,
-                updated_at = EXCLUDED.updated_at
-                
-            RETURNING id;
-            """
-            params = [
-                data.file_location,
-                data.statute,
-                data.law_id,
-                data.regulations,
-                data.created_at or datetime.now(timezone.utc),
-                data.updated_at or datetime.now(timezone.utc),
-            ]
-            logger.debug(f"Query: {query}, Params: {params}")
-            await self.db.execute(query, params)
+            await self.db.execute(query, *params)
             logger.debug(f"Upserted law regulations of region {region}")
             return {"success": True, "data": None}
         except Exception as e:
