@@ -12,6 +12,8 @@ import { useWorkflowStore } from '@/lib/stores'
 import { cn } from '@/lib/utils'
 import { Send, Bot, User, ChevronDown, ChevronRight, Settings, X, Check, XIcon, Code, AlertTriangle, RotateCcw, Brain, MessageSquarePlus, List } from 'lucide-react'
 import { ChatList } from './ChatList'
+import { MentionTextarea } from './MentionTextarea'
+import ReactMarkdown from 'react-markdown'
 
 interface HITLPrompt {
   prompt_id: string
@@ -72,6 +74,74 @@ function stripEmojis(input: string): string {
   }
 }
 
+// Markdown wrapper component with custom styling
+function MarkdownContent({ content, className = '' }: { content: string, className?: string }) {
+  const cleanContent = stripEmojis(content)
+  
+  return (
+    <div className={cn("markdown-content", className)}>
+      <ReactMarkdown 
+        components={{
+          // Custom components for better styling in chat bubbles
+          h1: ({ children }) => <h1 className="text-sm font-bold mb-1 mt-0 leading-tight">{children}</h1>,
+          h2: ({ children }) => <h2 className="text-sm font-semibold mb-1 mt-0 leading-tight">{children}</h2>,
+          h3: ({ children }) => <h3 className="text-xs font-semibold mb-1 mt-0 leading-tight">{children}</h3>,
+          h4: ({ children }) => <h4 className="text-xs font-semibold mb-0.5 mt-0 leading-tight">{children}</h4>,
+          h5: ({ children }) => <h5 className="text-xs font-medium mb-0.5 mt-0 leading-tight">{children}</h5>,
+          h6: ({ children }) => <h6 className="text-xs font-medium mb-0.5 mt-0 leading-tight">{children}</h6>,
+          p: ({ children }) => <p className="mb-1 last:mb-0 leading-relaxed">{children}</p>,
+          ul: ({ children }) => <ul className="list-disc list-inside mb-1 space-y-0.5 pl-2">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal list-inside mb-1 space-y-0.5 pl-2">{children}</ol>,
+          li: ({ children }) => <li className="text-sm leading-relaxed mb-0.5">{children}</li>,
+          code: ({ children, className }) => {
+            const isInline = !className?.includes('language-')
+            return isInline ? (
+              <code className="bg-black bg-opacity-10 px-1 py-0.5 rounded text-xs font-mono border">{children}</code>
+            ) : (
+              <pre className="bg-gray-800 text-green-400 p-2 rounded text-xs overflow-x-auto mt-1 mb-1">
+                <code>{children}</code>
+              </pre>
+            )
+          },
+          blockquote: ({ children }) => (
+            <blockquote className="border-l-2 border-gray-400 pl-2 italic opacity-80 my-1">
+              {children}
+            </blockquote>
+          ),
+          strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+          em: ({ children }) => <em className="italic">{children}</em>,
+          a: ({ children, href }) => (
+            <a href={href} className="text-blue-600 hover:text-blue-800 underline font-medium" target="_blank" rel="noopener noreferrer">
+              {children}
+            </a>
+          ),
+          table: ({ children }) => (
+            <div className="overflow-x-auto my-1">
+              <table className="min-w-full text-xs border-collapse border border-gray-300">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => <thead className="bg-gray-100">{children}</thead>,
+          tbody: ({ children }) => <tbody>{children}</tbody>,
+          tr: ({ children }) => <tr className="border-b border-gray-200">{children}</tr>,
+          th: ({ children }) => (
+            <th className="border border-gray-300 px-2 py-1 font-semibold text-left">
+              {children}
+            </th>
+          ),
+          td: ({ children }) => (
+            <td className="border border-gray-300 px-2 py-1">
+              {children}
+            </td>
+          ),
+          hr: () => <hr className="my-2 border-gray-300" />,
+        }}
+      >
+        {cleanContent}
+      </ReactMarkdown>
+    </div>
+  )
+}
+
 // Simple reasoning dropdown component (static text, no streaming)
 function ReasoningDropdown({ message }: { message: ChatMessage }) {
   // Simple toggle state - default closed
@@ -98,10 +168,10 @@ function ReasoningDropdown({ message }: { message: ChatMessage }) {
       
       {isExpanded && (
         <div className="mt-1 ml-4 space-y-1 text-gray-600 bg-gray-50 rounded px-2 py-1 border-l-2 border-gray-300 max-h-64 overflow-y-auto">
-          {/* All reasoning steps as static text */}
+          {/* All reasoning steps with markdown support */}
           {message.reasoning.map((step, index) => (
-            <div key={index} className="text-xs whitespace-pre-wrap text-gray-600">
-              {stripEmojis(step.content)}
+            <div key={index} className="text-xs text-gray-600">
+              <MarkdownContent content={step.content} className="text-gray-600" />
             </div>
           ))}
         </div>
@@ -1005,7 +1075,7 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
                     <Bot className="w-4 h-4 text-blue-600" />
                   </div>
                   <div className="bg-gray-100 rounded-lg rounded-bl-sm px-3 py-2 text-sm text-gray-700 max-w-[220px]">
-                    Hi! I'm ready to help with compliance questions. What would you like to know?
+                    <MarkdownContent content="Hi! I'm ready to help with compliance questions. What would you like to know?" className="text-gray-700" />
                   </div>
                 </div>
               )}
@@ -1055,12 +1125,20 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
                                 : 'bg-gray-100 text-gray-900 rounded-bl-sm'
                             )}
                           >
-                            <p className="whitespace-pre-wrap">{stripEmojis(message.content)}</p>
+                            <MarkdownContent 
+                              content={message.content} 
+                              className={cn(
+                                message.type === 'user' ? 'text-white' : 
+                                message.type === 'mcp_call' ? 'text-green-900' :
+                                message.mcp_approved ? 'text-green-900' :
+                                'text-gray-900'
+                              )}
+                            />
                           </div>
                         )}
                         
-                        {/* Cursor-style reasoning dropdown - shown even without message content */}
-                        {message.type === 'assistant' && (
+                        {/* Cursor-style reasoning dropdown - shown only for main assistant messages, not MCP calls */}
+                        {message.type === 'assistant' && !message.mcp_approved && !message.mcp_details && (
                           <ReasoningDropdown message={message} />
                         )}
                         
@@ -1093,22 +1171,27 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
                             MCP Approval Required
                           </div>
                           <div className="space-y-1 text-xs text-orange-700 mb-3">
-                            <div><strong>Tool:</strong> {stripEmojis(message.hitl_prompt.mcp_tool || message.hitl_prompt.context?.mcp_tool || 'N/A')}</div>
-                            <div><strong>Query:</strong> {stripEmojis(message.hitl_prompt.mcp_query || message.hitl_prompt.context?.mcp_query || 'N/A')}</div>
-                            <div><strong>Reason:</strong> {stripEmojis(message.hitl_prompt.mcp_reason || message.hitl_prompt.context?.mcp_reason || 'Processing request')}</div>
+                            <div><strong>Tool:</strong> <MarkdownContent content={message.hitl_prompt.mcp_tool || message.hitl_prompt.context?.mcp_tool || 'N/A'} className="inline" /></div>
+                            <div><strong>Query:</strong> <MarkdownContent content={message.hitl_prompt.mcp_query || message.hitl_prompt.context?.mcp_query || 'N/A'} className="inline" /></div>
+                            <div><strong>Reason:</strong> <MarkdownContent content={message.hitl_prompt.mcp_reason || message.hitl_prompt.context?.mcp_reason || 'Processing request'} className="inline" /></div>
                           </div>
                         </div>
                       ) : (
                         /* Regular HITL prompt */
                         <>
-                          <p className="text-orange-800 font-medium mb-2">{stripEmojis(message.hitl_prompt.question)}</p>
+                          <div className="text-orange-800 font-medium mb-2">
+                            <MarkdownContent content={message.hitl_prompt.question} className="text-orange-800" />
+                          </div>
                           
                           {/* Context info if available */}
                           {message.hitl_prompt.context && Object.keys(message.hitl_prompt.context).length > 0 && (
                             <div className="bg-orange-100 rounded px-2 py-1 mb-2 text-xs text-orange-700">
                               {Object.entries(message.hitl_prompt.context).slice(0, 2).map(([key, value]) => (
                                 <div key={key}>
-                                  <strong>{key}:</strong> {typeof value === 'string' ? stripEmojis(value.slice(0, 50)) + '...' : JSON.stringify(value).slice(0, 50) + '...'}
+                                  <strong>{key}:</strong> <MarkdownContent 
+                                    content={typeof value === 'string' ? value.slice(0, 50) + '...' : JSON.stringify(value).slice(0, 50) + '...'} 
+                                    className="inline text-orange-700" 
+                                  />
                                 </div>
                               ))}
                             </div>
@@ -1242,25 +1325,25 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
                   </Select>
                 </div>
                 
-                <div className="flex gap-2">
-                  <Input
+                <div className="flex gap-2 items-end">
+                  <MentionTextarea
                     value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault()
+                    onChange={setChatInput}
+                    onSubmit={() => {
+                      if (chatInput.trim() && !isQuerying) {
                         handleChatSend()
                       }
                     }}
-                    placeholder="Ask about compliance..."
+                    placeholder="Ask about compliance, or @mention requirements documents..."
                     className="flex-1 text-sm"
+                    minHeight="min-h-[36px]"
                     disabled={isQuerying}
                   />
                   <Button
                     onClick={handleChatSend}
                     disabled={!chatInput.trim() || isQuerying}
                     size="sm"
-                    className="px-3"
+                    className="px-3 h-9"
                   >
                     <Send className="w-4 h-4" />
                   </Button>
