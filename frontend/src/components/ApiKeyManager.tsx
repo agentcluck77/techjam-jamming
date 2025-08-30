@@ -5,9 +5,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Eye, EyeOff, Key, Settings } from 'lucide-react'
 import { toast } from 'sonner'
+import { useApiKeyStore } from '@/lib/stores'
 
 export type ApiKeyType = 'anthropic' | 'openai' | 'google'
 
@@ -18,18 +20,17 @@ interface ApiKeys {
 }
 
 interface ApiKeyManagerProps {
-  onApiKeysChange: (apiKeys: ApiKeys) => void
-  className?: string
+  children?: React.ReactNode
 }
 
-export default function ApiKeyManager({ onApiKeysChange, className = '' }: ApiKeyManagerProps) {
-  const [apiKeys, setApiKeys] = useState<ApiKeys>({})
+export default function ApiKeyManager({ children }: ApiKeyManagerProps) {
+  const { apiKeys, setApiKeys, hasValidApiKeys } = useApiKeyStore()
   const [showKeys, setShowKeys] = useState<Record<ApiKeyType, boolean>>({
     anthropic: false,
     openai: false,
     google: false
   })
-  const [isOpen, setIsOpen] = useState(false)
+  const [open, setOpen] = useState(false)
 
   // Load API keys from localStorage on mount
   useEffect(() => {
@@ -39,8 +40,7 @@ export default function ApiKeyManager({ onApiKeysChange, className = '' }: ApiKe
       google: localStorage.getItem('google_api_key') || ''
     }
     setApiKeys(savedKeys)
-    onApiKeysChange(savedKeys)
-  }, [onApiKeysChange])
+  }, [])
 
   const handleKeyChange = (keyType: ApiKeyType, value: string) => {
     const updatedKeys = { ...apiKeys, [keyType]: value }
@@ -52,8 +52,6 @@ export default function ApiKeyManager({ onApiKeysChange, className = '' }: ApiKe
     } else {
       localStorage.removeItem(`${keyType}_api_key`)
     }
-    
-    onApiKeysChange(updatedKeys)
   }
 
   const toggleShowKey = (keyType: ApiKeyType) => {
@@ -65,50 +63,33 @@ export default function ApiKeyManager({ onApiKeysChange, className = '' }: ApiKe
     toast.success(`${keyType} API key cleared`)
   }
 
-  const hasAnyKeys = Object.values(apiKeys).some(key => key && key.length > 0)
-
-  if (!isOpen) {
-    return (
-      <div className={`flex items-center gap-2 ${className}`}>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={() => setIsOpen(true)}
-          className={hasAnyKeys ? "border-green-500" : "border-orange-500"}
-        >
-          <Key className="h-4 w-4 mr-2" />
-          {hasAnyKeys ? "API Keys Set" : "Set API Keys"}
-        </Button>
-        {!hasAnyKeys && (
-          <span className="text-sm text-muted-foreground">
-            Required for AI analysis
-          </span>
-        )}
-      </div>
-    )
-  }
+  const hasAnyKeys = hasValidApiKeys()
 
   return (
-    <Card className={className}>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span className="flex items-center gap-2">
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        {children || (
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className={hasAnyKeys ? "border-green-500" : "border-orange-500"}
+          >
+            <Key className="h-4 w-4 mr-2" />
+            {hasAnyKeys ? "API Keys Set" : "Set API Keys"}
+          </Button>
+        )}
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
             <Key className="h-5 w-5" />
             API Key Configuration
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsOpen(false)}
-          >
-            Close
-          </Button>
-        </CardTitle>
-        <CardDescription>
-          Enter your AI provider API keys. Keys are stored locally in your browser and sent securely to the backend.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+          </DialogTitle>
+          <DialogDescription>
+            Enter your AI provider API keys. Keys are stored locally in your browser and sent securely to the backend.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
         <Tabs defaultValue="anthropic" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="anthropic">
@@ -241,7 +222,8 @@ export default function ApiKeyManager({ onApiKeysChange, className = '' }: ApiKe
             </p>
           </div>
         )}
-      </CardContent>
-    </Card>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }

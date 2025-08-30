@@ -5,7 +5,7 @@ import { Navigation } from "@/components/Navigation"
 import { HITLSidebar } from "@/components/HITLSidebar"
 import { Button } from "@/components/ui/button"
 import { MessageSquare } from 'lucide-react'
-import { useWorkflowStore } from '@/lib/stores'
+import { useWorkflowStore, useApiKeyStore } from '@/lib/stores'
 import { cn } from '@/lib/utils'
 
 export function LayoutWrapper({
@@ -14,6 +14,7 @@ export function LayoutWrapper({
   children: React.ReactNode
 }) {
   const { sidebarOpen, setSidebarOpen, navigationCollapsed } = useWorkflowStore()
+  const { apiKeys } = useApiKeyStore()
   const [sidebarWidth, setSidebarWidth] = useState(320) // Default 320px
 
   // Listen for sidebar width changes
@@ -69,6 +70,7 @@ export function LayoutWrapper({
       )}
       
       <HITLSidebar 
+        apiKeys={apiKeys}
         onWidthChange={(width, open) => {
           setSidebarWidth(width)
           if (!open) {

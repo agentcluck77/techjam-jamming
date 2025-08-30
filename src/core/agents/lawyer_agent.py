@@ -1,24 +1,61 @@
 """
-Lawyer Agent - Phase 1A Implementation
-Central coordinator for legal analysis and decision synthesis
+Lawyer Agent - Enhanced Implementation
+Central coordinator for legal analysis with autonomous workflow capabilities
 """
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Callable
 import statistics
 from datetime import datetime
 import uuid
 import json
 import re
+import asyncio
+from pydantic import BaseModel
 
 from ..models import JurisdictionAnalysis, FeatureAnalysisResponse, UserQueryResponse
 from .real_mcp_client import RealMCPClient
 from ..llm_service import llm_client
 from ..config_manager import get_system_prompt, get_knowledge_base
 
+# Import workflow classes for autonomous operation
+class AgentAction(BaseModel):
+    action_type: str  # "mcp_call", "analysis", "response", "hitl_prompt"
+    details: Dict[str, Any]
+    requires_approval: bool = False
+
+class ReasoningStep(BaseModel):
+    type: str  # 'llm_decision', 'mcp_call', 'analysis', 'hitl_prompt'
+    content: str
+    duration: Optional[float] = None
+    timestamp: str
+
+class MCPExecution(BaseModel):
+    tool: str
+    query: str
+    results_count: int
+    execution_time: float
+    result_summary: str
+    timestamp: str
+    raw_results: dict
+
+class AutonomousAgentState(BaseModel):
+    session_id: str
+    conversation_history: List[Dict[str, str]]
+    current_task: Optional[str] = None
+    tool_results: List[Dict[str, Any]] = []
+    reasoning_steps: List[ReasoningStep] = []
+    start_time: Optional[datetime] = None
+    pending_mcp_decision: Optional[Dict[str, str]] = None
+    status: str = "active"  # active, waiting_hitl, completed, error
+    mcp_sent_count: int = 0
+    mcp_executions_for_chat: List[Dict[str, Any]] = []
+    api_keys: Optional[Dict[str, str]] = None
+
 class LawyerAgent:
     """
-    Enhanced central coordinator for legal analysis with dual-mode operation:
+    Enhanced central coordinator for legal analysis with triple-mode operation:
     1. Feature compliance analysis (with MCP search)
-    2. Direct user query responses (advisory mode)
+    2. Direct user query responses (advisory mode) 
+    3. Autonomous workflow orchestration (NEW - with HITL integration)
     """
     
     def __init__(self, mcp_client=None):
@@ -31,6 +68,13 @@ class LawyerAgent:
         # These proxy to the unified mcp_client
         self._legal_mcp = None
         self._requirements_mcp = None
+        
+        # Autonomous workflow state management
+        self.active_sessions: Dict[str, AutonomousAgentState] = {}
+        self.session_locks: Dict[str, asyncio.Lock] = {}
+        
+        # HITL callback for MCP approval prompts
+        self.hitl_callback: Optional[Callable] = None
     
     @property
     def legal_mcp(self):
@@ -1249,6 +1293,609 @@ Return ONLY: true or false"""
             
         # Default fallback
         return False
+    
+    # ===== AUTONOMOUS WORKFLOW METHODS =====
+    # New methods for autonomous chat orchestration with HITL integration
+    
+    def set_hitl_callback(self, callback: Callable):
+        """Set callback function for HITL prompts (MCP approval, clarifications)"""
+        self.hitl_callback = callback
+    
+    async def run_autonomous_workflow(
+        self, 
+        session_id: str, 
+        user_message: str, 
+        context: Optional[str] = None,
+        api_keys: Optional[Dict[str, str]] = None
+    ) -> str:
+        """
+        Main autonomous workflow orchestration - like current autonomous agent
+        Uses configurable system prompts and knowledge base
+        
+        Returns:
+            Final response or workflow_id for continued polling
+        """
+        
+        # Initialize session state
+        if session_id not in self.active_sessions:
+            self.active_sessions[session_id] = AutonomousAgentState(
+                session_id=session_id,
+                conversation_history=[{"role": "user", "content": user_message}],
+                current_task=f"legal_analysis: {user_message[:50]}...",
+                start_time=datetime.now(),
+                status="active",
+                api_keys=api_keys
+            )
+            self.session_locks[session_id] = asyncio.Lock()
+        else:
+            # Add new message to existing conversation
+            self.active_sessions[session_id].conversation_history.append({
+                "role": "user", 
+                "content": user_message
+            })
+        
+        # Run autonomous workflow loop
+        async with self.session_locks[session_id]:
+            return await self._autonomous_workflow_loop(session_id, user_message, context)
+    
+    async def _autonomous_workflow_loop(
+        self, 
+        session_id: str, 
+        user_message: str, 
+        context: Optional[str]
+    ) -> str:
+        """
+        Autonomous decision-making loop using configurable system prompts
+        Identical functionality to current autonomous agent but with LawyerAgent intelligence
+        """
+        
+        state = self.active_sessions[session_id]
+        max_iterations = 10  # Prevent infinite loops
+        iteration = 0
+        
+        try:
+            while iteration < max_iterations and state.status == "active":
+                iteration += 1
+                
+                # Get next action from LLM using configurable prompts
+                next_action = await self._decide_next_action(session_id, user_message, context)
+                
+                if not next_action:
+                    state.status = "completed"
+                    break
+                    
+                # Execute the action
+                if next_action.action_type == "mcp_call":
+                    if state.mcp_sent_count >= 5:
+                        # Force analysis when MCP limit reached
+                        next_action.action_type = "analysis"
+                        await self._perform_analysis(session_id, next_action)
+                    else:
+                        # MCP calls require HITL approval
+                        await self._request_mcp_approval(session_id, next_action)
+                        state.status = "waiting_hitl"
+                        return session_id  # Return session_id for polling
+                        
+                elif next_action.action_type == "analysis":
+                    await self._perform_analysis(session_id, next_action)
+                    
+                elif next_action.action_type == "response":
+                    final_response = await self._generate_final_response(session_id, next_action)
+                    state.status = "completed"
+                    return final_response
+                    
+                elif next_action.action_type == "hitl_prompt":
+                    await self._request_user_input(session_id, next_action)
+                    state.status = "waiting_hitl"
+                    return session_id  # Return session_id for polling
+                
+                # Brief yield for responsiveness
+                await asyncio.sleep(0.05)
+            
+            # Max iterations reached
+            if iteration >= max_iterations:
+                state.status = "completed"
+                return "⏰ **Analysis Complete** - Reached processing limit. Results available above."
+                
+        except Exception as e:
+            state.status = "error"
+            return f"❌ **Analysis Failed**: {str(e)}"
+    
+    async def _decide_next_action(
+        self, 
+        session_id: str, 
+        user_message: str, 
+        context: Optional[str]
+    ) -> Optional[AgentAction]:
+        """
+        Autonomous decision-making using configurable system prompt
+        Replaces hardcoded prompt with get_system_prompt()
+        """
+        
+        state = self.active_sessions[session_id]
+        decision_start = datetime.now()
+        
+        # Build context from conversation and tool results
+        conversation_context = "\n".join([
+            f"{msg['role']}: {msg['content']}" 
+            for msg in state.conversation_history
+        ])
+        
+        tool_results_context = "\n".join([
+            f"Tool Result: {json.dumps(result, indent=2)}"
+            for result in state.tool_results
+        ])
+        
+        reasoning_steps_context = "\n".join([
+            f"Step {i+1}: {step.type.upper()} - {step.content}"
+            for i, step in enumerate(state.reasoning_steps)
+        ]) or "No previous reasoning steps"
+        
+        # Count analysis steps for efficiency
+        analysis_count = len([
+            step for step in state.reasoning_steps 
+            if step.type == "llm_decision" and "analysis" in step.content.lower()
+        ])
+        
+        # Use configurable system prompt and knowledge base
+        system_prompt = get_system_prompt()
+        knowledge_base = get_knowledge_base()
+        
+        # Enhanced autonomous agent system prompt with configurable content
+        decision_prompt = f"""{system_prompt}
+
+=== CURRENT CONTEXT ===
+User Request: {user_message}
+Conversation History:
+{conversation_context}
+
+PREVIOUS REASONING STEPS:
+{reasoning_steps_context}
+
+Previous Tool Results:
+{tool_results_context}
+
+STATE ANALYSIS:
+- Analysis decisions made: {analysis_count}
+- Tool calls made: {len(state.tool_results)}
+- MCP calls made: {state.mcp_sent_count} (limit: 5 per session)
+
+Knowledge Base:
+{knowledge_base}
+
+=== DECISION FORMAT ===
+Respond with exactly this format:
+
+ACTION_TYPE: [mcp_call|analysis|response|hitl_prompt]
+REASONING: [Your strategic reasoning for this choice - 1-2 sentences]
+RESPONSE_CONTENT: [If action_type is "response", provide focused compliance gap report ONLY]
+DETAILS: [For other action types: specific MCP query, analysis focus, etc.]
+
+What is your autonomous decision for the next action?"""
+
+        try:
+            # Use user's API keys if provided
+            current_llm_client = llm_client
+            if state.api_keys:
+                from ..llm_service import create_llm_client
+                current_llm_client = create_llm_client(state.api_keys)
+            
+            response = await current_llm_client.complete(
+                decision_prompt,
+                max_tokens=2000,
+                temperature=0.1
+            )
+            
+            content = response.get("content", "").strip()
+            
+            # Parse agent decision (reuse existing parsing logic)
+            action = self._parse_agent_decision(content, analysis_count)
+            
+            if action:
+                # Record reasoning step
+                decision_duration = (datetime.now() - decision_start).total_seconds()
+                state.reasoning_steps.append(ReasoningStep(
+                    type="llm_decision",
+                    content=f"Decided to {action.action_type}: {action.details.get('reasoning', '')}",
+                    duration=decision_duration,
+                    timestamp=datetime.now().isoformat()
+                ))
+            
+            return action
+            
+        except Exception as e:
+            print(f"❌ Decision failed: {e}")
+            return None
+    
+    def _parse_agent_decision(self, content: str, analysis_count: int) -> Optional[AgentAction]:
+        """
+        Parse LLM response into AgentAction - reuse existing parsing logic
+        Enhanced to handle MCP-specific action types
+        """
+        
+        action_type = None
+        reasoning = ""
+        details = {}
+        response_content = ""
+        
+        # Parse structured response
+        lines = content.split('\n')
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            if line.startswith("ACTION_TYPE:"):
+                action_type = line.replace("ACTION_TYPE:", "").strip()
+            elif line.startswith("REASONING:"):
+                reasoning = line.replace("REASONING:", "").strip()
+            elif line.startswith("RESPONSE_CONTENT:"):
+                # Handle multi-line response content
+                response_lines = []
+                first_line_content = line.replace("RESPONSE_CONTENT:", "").strip()
+                if first_line_content:
+                    response_lines.append(first_line_content)
+                
+                i += 1
+                while i < len(lines):
+                    next_line = lines[i].strip()
+                    if (next_line.startswith("DETAILS:") or 
+                        next_line.startswith("ACTION_TYPE:") or 
+                        next_line.startswith("REASONING:")):
+                        i -= 1
+                        break
+                    if next_line:
+                        response_lines.append(next_line)
+                    i += 1
+                
+                response_content = "\n".join(response_lines).strip()
+            elif line.startswith("DETAILS:"):
+                details_str = line.replace("DETAILS:", "").strip()
+                details = {"description": details_str}
+            i += 1
+        
+        # Normalize MCP-related action types
+        if action_type in ["legal_mcp", "requirements_mcp"]:
+            original_action = action_type
+            action_type = "mcp_call"
+            reasoning = f"Normalized {original_action} to mcp_call"
+        
+        # Fallback parsing with MCP awareness
+        if not action_type or action_type not in ["mcp_call", "analysis", "response", "hitl_prompt"]:
+            content_lower = content.lower()
+            if "mcp_call" in content_lower or "legal_mcp" in content_lower or "requirements_mcp" in content_lower:
+                action_type = "mcp_call"
+                reasoning = "Fallback: Detected MCP call in response"
+            elif "analysis" in content_lower and analysis_count < 3:
+                action_type = "analysis"
+                reasoning = "Fallback: Detected analysis request"
+            elif "response" in content_lower or analysis_count >= 3:
+                action_type = "response"
+                reasoning = "Fallback: Ready to provide response"
+            else:
+                action_type = "response"
+                reasoning = "Fallback: Defaulting to response after multiple reasoning steps"
+                
+            details = {"description": content[:100]}
+        
+        if not action_type:
+            return None
+            
+        requires_approval = action_type == "mcp_call"
+        
+        return AgentAction(
+            action_type=action_type,
+            details={
+                "reasoning": reasoning,
+                "description": details.get("description", ""),
+                "response_content": response_content,
+                "raw_response": content
+            },
+            requires_approval=requires_approval
+        )
+    
+    async def _request_mcp_approval(self, session_id: str, action: AgentAction):
+        """Request HITL approval for MCP calls"""
+        if not self.hitl_callback:
+            # No HITL callback - auto-approve (for testing)
+            await self._execute_mcp_call(session_id, action)
+            return
+            
+        # Generate MCP approval prompt
+        mcp_details = await self._determine_mcp_tool(session_id, action)
+        if not mcp_details:
+            return
+            
+        approval_prompt = {
+            "type": "mcp_approval",
+            "question": f"I want to search {mcp_details['tool']} for: '{mcp_details['query']}' Should I proceed?",
+            "options": ["Approve", "Skip"],
+            "context": {
+                "mcp_tool": mcp_details["tool"],
+                "mcp_query": mcp_details["query"],
+                "mcp_reason": mcp_details["reasoning"]
+            }
+        }
+        
+        # Call HITL callback
+        await self.hitl_callback(session_id, approval_prompt)
+    
+    async def _determine_mcp_tool(self, session_id: str, action: AgentAction) -> Optional[Dict[str, str]]:
+        """
+        Determine which MCP tool to call and what query to use
+        Uses LLM intelligence like current autonomous agent
+        """
+        
+        state = self.active_sessions[session_id]
+        
+        # Build context for MCP tool selection
+        conversation_context = "\n".join([
+            f"{msg['role']}: {msg['content']}" 
+            for msg in state.conversation_history[-3:]  # Last 3 messages
+        ])
+        
+        tool_results_context = "\n".join([
+            f"Previous MCP: {result.get('tool', 'unknown')}" 
+            for result in state.tool_results[-2:]  # Last 2 results
+        ]) or "No previous MCP calls"
+        
+        decision_prompt = f"""You are an autonomous legal compliance agent. You must decide which MCP tool to call and what query to use.
+
+=== CONVERSATION CONTEXT ===
+{conversation_context}
+
+=== PREVIOUS MCP CALLS ===
+{tool_results_context}
+
+=== AVAILABLE TOOLS ===
+REQUIREMENTS MCP TOOLS:
+- Tool: requirements_mcp
+- For document content: Use query "document_id:UUID extract requirements"
+- For semantic search: Use query "your search terms"
+
+LEGAL MCP TOOLS:
+- Tool: legal_mcp  
+- For semantic search: Use query "your legal search terms"
+- Example: "GDPR data protection requirements"
+
+=== DECISION FORMAT ===
+TOOL: [legal_mcp|requirements_mcp]
+QUERY: [your specific search query]
+REASONING: [brief 10-word reason for tool choice]
+
+Make your decision based purely on context and reasoning - no keyword matching allowed.
+KEEP REASONING BRIEF: Maximum 10 words explaining your choice."""
+
+        try:
+            # Use user's API keys if provided
+            current_llm_client = llm_client
+            if state.api_keys:
+                from ..llm_service import create_llm_client
+                current_llm_client = create_llm_client(state.api_keys)
+            
+            response = await current_llm_client.complete(
+                decision_prompt,
+                max_tokens=200,
+                temperature=0.1
+            )
+            
+            content = response.get("content", "").strip()
+            
+            # Parse MCP decision
+            tool = None
+            query = None
+            reasoning = None
+            
+            for line in content.split('\n'):
+                line = line.strip()
+                if line.startswith("TOOL:"):
+                    tool = line.replace("TOOL:", "").strip()
+                elif line.startswith("QUERY:"):
+                    query = line.replace("QUERY:", "").strip()
+                elif line.startswith("REASONING:"):
+                    reasoning = line.replace("REASONING:", "").strip()
+            
+            if tool and query:
+                return {
+                    "tool": tool,
+                    "query": query,
+                    "reasoning": reasoning or "MCP analysis needed"
+                }
+            
+            return None
+            
+        except Exception as e:
+            print(f"❌ MCP tool decision failed: {e}")
+            return None
+    
+    async def _execute_mcp_call(self, session_id: str, action: AgentAction):
+        """Execute approved MCP call and store results"""
+        state = self.active_sessions[session_id]
+        
+        # Get MCP details
+        mcp_details = await self._determine_mcp_tool(session_id, action)
+        if not mcp_details:
+            return
+        
+        execution_start = datetime.now()
+        
+        try:
+            # Call appropriate MCP
+            if mcp_details["tool"] == "requirements_mcp":
+                result = await self.mcp_client.call_tool("search_requirements", {
+                    "search_type": "semantic",
+                    "query": mcp_details["query"]
+                })
+            elif mcp_details["tool"] == "legal_mcp":
+                result = await self.mcp_client.call_tool("search_legal_documents", {
+                    "search_type": "semantic",
+                    "query": mcp_details["query"]
+                })
+            else:
+                result = {"error": f"Unknown MCP tool: {mcp_details['tool']}"}
+            
+            execution_time = (datetime.now() - execution_start).total_seconds()
+            
+            # Store result for context
+            state.tool_results.append({
+                "tool": mcp_details["tool"],
+                "query": mcp_details["query"],
+                "result": result,
+                "execution_time": execution_time
+            })
+            
+            # Store MCP execution for frontend display
+            results_count = len(result.get("results", [])) if isinstance(result, dict) else 0
+            state.mcp_executions_for_chat.append({
+                "tool": mcp_details["tool"],
+                "query": mcp_details["query"],
+                "results_count": results_count,
+                "execution_time": execution_time,
+                "result_summary": f"Found {results_count} results" if results_count > 0 else "No results",
+                "timestamp": datetime.now().isoformat(),
+                "raw_results": result
+            })
+            
+            state.mcp_sent_count += 1
+            
+            # Add reasoning step
+            state.reasoning_steps.append(ReasoningStep(
+                type="mcp_call",
+                content=f"Executed {mcp_details['tool']}: {mcp_details['query']}",
+                duration=execution_time,
+                timestamp=datetime.now().isoformat()
+            ))
+            
+        except Exception as e:
+            print(f"❌ MCP execution failed: {e}")
+    
+    async def _perform_analysis(self, session_id: str, action: AgentAction):
+        """Perform legal analysis using configurable prompts"""
+        state = self.active_sessions[session_id]
+        
+        system_prompt = get_system_prompt()
+        knowledge_base = get_knowledge_base()
+        
+        # Build analysis context
+        conversation_context = "\n".join([
+            f"{msg['role']}: {msg['content']}" 
+            for msg in state.conversation_history
+        ])
+        
+        tool_results_summary = "\n".join([
+            f"- {result.get('tool', 'unknown')}: {result.get('query', '')}" 
+            for result in state.tool_results
+        ]) or "No tool results available"
+        
+        analysis_prompt = f"""{system_prompt}
+
+=== ANALYSIS TASK ===
+Analyze the conversation and tool results to identify compliance gaps.
+
+Conversation:
+{conversation_context}
+
+Tool Results Available:
+{tool_results_summary}
+
+Knowledge Base:
+{knowledge_base}
+
+Focus on detection and reasoning only."""
+        
+        try:
+            # Use user's API keys if provided
+            current_llm_client = llm_client
+            if state.api_keys:
+                from ..llm_service import create_llm_client
+                current_llm_client = create_llm_client(state.api_keys)
+            
+            analysis_start = datetime.now()
+            response = await current_llm_client.complete(
+                analysis_prompt,
+                max_tokens=500,
+                temperature=0.1
+            )
+            
+            analysis_result = response.get("content", "Analysis failed").strip()
+            analysis_duration = (datetime.now() - analysis_start).total_seconds()
+            
+            # Store analysis step
+            state.reasoning_steps.append(ReasoningStep(
+                type="analysis",
+                content=f"Performed compliance gap analysis: {analysis_result[:100]}...",
+                duration=analysis_duration,
+                timestamp=datetime.now().isoformat()
+            ))
+            
+        except Exception as e:
+            print(f"❌ Analysis failed: {e}")
+    
+    async def _generate_final_response(self, session_id: str, action: AgentAction) -> str:
+        """Generate final compliance analysis response"""
+        
+        # Check if we have response content from the action
+        response_content = action.details.get("response_content", "").strip()
+        
+        if response_content:
+            return response_content
+        
+        # Generate response using analysis
+        state = self.active_sessions[session_id]
+        
+        # Summarize analysis steps
+        analysis_summary = []
+        for step in state.reasoning_steps:
+            if step.type == "analysis":
+                analysis_summary.append(step.content)
+        
+        if analysis_summary:
+            return "\n\n".join(analysis_summary)
+        else:
+            return "📋 **Analysis Complete** - Review the reasoning steps above for detailed findings."
+    
+    async def _request_user_input(self, session_id: str, action: AgentAction):
+        """Request additional user input via HITL"""
+        if not self.hitl_callback:
+            return
+            
+        user_prompt = {
+            "type": "user_input",
+            "question": action.details.get("description", "Need additional information"),
+            "options": ["Provide input", "Skip"],
+            "context": {}
+        }
+        
+        await self.hitl_callback(session_id, user_prompt)
+    
+    # Session management methods for frontend integration
+    def get_session_state(self, session_id: str) -> Optional[AutonomousAgentState]:
+        """Get current session state for polling"""
+        return self.active_sessions.get(session_id)
+    
+    def get_reasoning_steps(self, session_id: str) -> List[ReasoningStep]:
+        """Get reasoning steps for frontend display"""
+        state = self.active_sessions.get(session_id)
+        return state.reasoning_steps if state else []
+    
+    def get_mcp_executions(self, session_id: str) -> List[Dict[str, Any]]:
+        """Get MCP executions for frontend display"""
+        state = self.active_sessions.get(session_id)
+        return state.mcp_executions_for_chat if state else []
+    
+    async def handle_hitl_response(self, session_id: str, response: str):
+        """Handle user response to HITL prompt and continue workflow"""
+        if session_id not in self.active_sessions:
+            return None
+            
+        state = self.active_sessions[session_id]
+        state.status = "active"  # Resume from waiting_hitl
+        
+        # Continue workflow loop
+        async with self.session_locks[session_id]:
+            return await self._autonomous_workflow_loop(
+                session_id, 
+                state.conversation_history[-1]["content"],  # Last user message
+                None
+            )
 
 # TODO: MCP Integration - Enhanced version with caching and performance optimization
 # class EnhancedLawyerAgent(LawyerAgent):

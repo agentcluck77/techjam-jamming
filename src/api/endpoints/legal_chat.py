@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 # Initialize the lawyer agent for MCP calls
 lawyer_agent = LawyerAgent()
 
+# Enhanced lawyer agent for testing (Phase 1 implementation)
+enhanced_lawyer_agent = LawyerAgent()
+
 # Agent state management
 agent_sessions = {}
 agent_locks = {}  # Prevent concurrent agent loops
@@ -322,6 +325,82 @@ async def legal_compliance_chat(request: ChatRequest, background_tasks: Backgrou
         raise HTTPException(
             status_code=500,
             detail="Failed to start autonomous agent. Please try again."
+        )
+
+@router.post("/legal-chat-enhanced", response_model=ChatResponse)
+async def legal_compliance_chat_enhanced(request: ChatRequest):
+    """
+    TEST ENDPOINT: Enhanced LawyerAgent with autonomous workflow capabilities
+    Uses configurable system prompts and knowledge base from UI editors
+    """
+    
+    logger.info(f"🧠 ENHANCED CHAT - Message: '{request.message[:100]}...'")
+    
+    if not request.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    
+    try:
+        # Generate unique session ID for enhanced agent
+        session_id = f"enhanced-{uuid.uuid4().hex[:8]}"
+        
+        # Set up HITL callback for MCP approval prompts
+        async def hitl_callback(session_id: str, prompt: Dict[str, Any]):
+            # For now, auto-approve all MCP calls (testing mode)
+            # In production, this would integrate with the HITL system
+            logger.info(f"🔒 HITL Prompt: {prompt['question']}")
+            return "Approve"
+        
+        enhanced_lawyer_agent.set_hitl_callback(hitl_callback)
+        
+        # Run enhanced autonomous workflow
+        result = await enhanced_lawyer_agent.run_autonomous_workflow(
+            session_id=session_id,
+            user_message=request.message,
+            context=request.context,
+            api_keys=request.api_keys
+        )
+        
+        # Get session state for response details
+        session_state = enhanced_lawyer_agent.get_session_state(session_id)
+        reasoning_steps = enhanced_lawyer_agent.get_reasoning_steps(session_id)
+        mcp_executions = enhanced_lawyer_agent.get_mcp_executions(session_id)
+        
+        # Calculate reasoning duration
+        reasoning_duration = 0
+        if session_state and session_state.start_time:
+            reasoning_duration = (datetime.now() - session_state.start_time).total_seconds()
+        
+        return ChatResponse(
+            response=result,
+            timestamp=datetime.now().isoformat(),
+            workflow_started=False,  # Enhanced agent handles workflow internally
+            workflow_id=session_id,
+            reasoning=[ReasoningStep(
+                type=step.type,
+                content=step.content,
+                duration=step.duration,
+                timestamp=step.timestamp
+            ) for step in reasoning_steps],
+            reasoning_duration=reasoning_duration,
+            is_reasoning_complete=True,
+            mcp_executions=[MCPExecution(
+                tool=exec["tool"],
+                query=exec["query"],
+                results_count=exec["results_count"],
+                execution_time=exec["execution_time"],
+                result_summary=exec["result_summary"],
+                timestamp=exec["timestamp"],
+                raw_results=exec["raw_results"]
+            ) for exec in mcp_executions] if mcp_executions else None
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Enhanced chat failed: {e}")
+        return ChatResponse(
+            response=f"❌ **Enhanced Analysis Failed**: {str(e)}",
+            timestamp=datetime.now().isoformat(),
+            workflow_started=False,
+            workflow_id=None
         )
 
 async def _run_persistent_chat_agent(session_id: str, chat_id: str, user_message: str, context: Optional[str]):

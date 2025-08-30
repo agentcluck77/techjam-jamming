@@ -13,7 +13,6 @@ import { CheckSquare, Clock, Settings, CheckCircle, Loader2, FileText } from 'lu
 export default function RequirementsCheck() {
   const [recentUploads, setRecentUploads] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
-  const [apiKeys, setApiKeys] = useState<any>({})
 
   useEffect(() => {
     const loadRecentUploads = async () => {
@@ -66,12 +65,13 @@ export default function RequirementsCheck() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <ApiKeyManager onApiKeysChange={setApiKeys} />
             <Button variant="outline" size="sm">Recent</Button>
             <Button variant="outline" size="sm">Help</Button>
-            <Button variant="outline" size="sm">
-              <Settings className="w-4 h-4" />
-            </Button>
+            <ApiKeyManager>
+              <Button variant="outline" size="sm">
+                <Settings className="w-4 h-4" />
+              </Button>
+            </ApiKeyManager>
           </div>
         </div>
 

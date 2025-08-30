@@ -2,6 +2,9 @@
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
+.env.test
 
 # Python
 __pycache__/
@@ -76,6 +79,8 @@ tmp/
 data/exports/
 data/uploads/
 data/temp/
+data/chromadb/
+data/config/
 
 # Frontend (Next.js)
 frontend/node_modules/
@@ -117,7 +122,66 @@ htmlcov/
 src/legal-mcp/data/chroma/
 src/requirements-mcp/data/chroma/
 chroma_data/
+*.chroma/
+chroma/
 
 # Uploaded documents
 uploads/
 documents/
+
+# Sentence transformers cache
+.sentence_transformers_cache/
+.transformers_cache/
+transformers_cache/
+
+# Config directories
+data/config/
+
+# Debug and test files
+debug_*.py
+test_*.py
+test_requirements_migration.py
+
+# AI/ML model caches and embeddings
+*.pt
+*.bin
+*.safetensors
+embeddings/
+model_cache/
+
+# Additional Python patterns
+.python-version
+.venv/
+venv*/
+conda-meta/
+Pipfile.lock
+
+# Additional Next.js patterns
+frontend/.env.production
+frontend/.env.development
+frontend/.vercel
+frontend/*.log
+
+# Package manager lock files (keep package-lock.json but ignore yarn.lock)
+frontend/yarn.lock
+frontend/pnpm-lock.yaml
+
+# Additional development files
+*.orig
+.mergify.yml
+
+# Archive and deprecated
+archive/
+deprecated/
+
+# Core data uploads (MCP processing)
+src/core/data/uploads/
+
+# Additional log files
+backend.log
+frontend.log
+mcp.log
+
+# Virtual environment variants
+.venv*/
+venv*/

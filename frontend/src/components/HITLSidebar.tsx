@@ -256,9 +256,10 @@ function MCPOutputToggle({ result, messageId }: { result: any, messageId: string
 
 interface HITLSidebarProps {
   onWidthChange?: (width: number, open: boolean) => void
+  apiKeys?: Record<string, string>
 }
 
-export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
+export function HITLSidebar({ onWidthChange, apiKeys }: HITLSidebarProps = {}) {
   const { sidebarOpen, setSidebarOpen } = useWorkflowStore()
   
   // Debug logging
@@ -382,7 +383,8 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
               body: JSON.stringify({ 
                 message: autoAnalysisPrompt, 
                 context: 'Auto-triggered compliance analysis',
-                chat_id: selectedChat?.id
+                chat_id: selectedChat?.id,
+                api_keys: apiKeys
               })
             })
             
@@ -611,7 +613,8 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
         body: JSON.stringify({ 
           message: originalInput, 
           context: '',
-          chat_id: selectedChat?.id  // Include chat ID for persistence
+          chat_id: selectedChat?.id,  // Include chat ID for persistence
+          api_keys: apiKeys
         })
       })
       
