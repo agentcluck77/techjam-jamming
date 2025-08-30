@@ -6,13 +6,14 @@ import { HITLSidebar } from "@/components/HITLSidebar"
 import { Button } from "@/components/ui/button"
 import { MessageSquare } from 'lucide-react'
 import { useWorkflowStore } from '@/lib/stores'
+import { cn } from '@/lib/utils'
 
 export function LayoutWrapper({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const { sidebarOpen, setSidebarOpen } = useWorkflowStore()
+  const { sidebarOpen, setSidebarOpen, navigationCollapsed } = useWorkflowStore()
   const [sidebarWidth, setSidebarWidth] = useState(320) // Default 320px
 
   // Listen for sidebar width changes
@@ -29,8 +30,8 @@ export function LayoutWrapper({
     }
   }, [])
 
-  // Calculate main content margins with minimum constraints
-  const navigationWidth = 256 // ml-64 = 256px (16rem)
+  // Calculate dynamic navigation width
+  const navigationWidth = navigationCollapsed ? 64 : 256 // w-16 = 64px, w-64 = 256px
   const minMainContentWidth = 400 // Minimum main content width
   const actualSidebarWidth = sidebarOpen ? sidebarWidth : 0
   
@@ -44,7 +45,10 @@ export function LayoutWrapper({
     <div className="min-h-screen">
       <Navigation />
       <main 
-        className="ml-64 min-h-screen transition-all duration-200 ease-in-out"
+        className={cn(
+          "min-h-screen transition-all duration-300 ease-in-out",
+          navigationCollapsed ? "ml-16" : "ml-64"
+        )}
         style={{ 
           marginRight: sidebarOpen ? `${effectiveSidebarWidth}px` : '0px',
         }}

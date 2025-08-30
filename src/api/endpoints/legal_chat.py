@@ -1255,6 +1255,10 @@ async def respond_to_inline_hitl(request: dict):
     if not workflow_id:
         raise HTTPException(status_code=400, detail="Workflow ID required")
     
+    # Mark the HITL prompt as completed
+    if prompt_id and prompt_id in pending_hitl_prompts:
+        pending_hitl_prompts[prompt_id]["completed"] = True
+    
     # Check if it's an agent session
     if workflow_id in agent_sessions:
         # Continue autonomous agent after HITL response
@@ -1285,8 +1289,8 @@ async def poll_for_next_message(workflow_id: str):
         
         # Check for pending HITL prompts (to show as inline chat messages in sidebar)
         for prompt_id, prompt in pending_hitl_prompts.items():
-            if prompt.get("workflow_id") == workflow_id and not prompt.get("sent", False):
-                # Mark as sent
+            if prompt.get("workflow_id") == workflow_id and not prompt.get("completed", False):
+                # Mark as sent (but not completed until user responds)
                 pending_hitl_prompts[prompt_id]["sent"] = True
                 
                 # Extract MCP-specific fields from context for MCP approval prompts
@@ -1421,7 +1425,7 @@ async def poll_for_next_message(workflow_id: str):
     
     # Check for pending HITL prompts (legacy)
     for prompt_id, prompt in pending_hitl_prompts.items():
-        if prompt.get("workflow_id") == workflow_id and not prompt.get("sent", False):
+        if prompt.get("workflow_id") == workflow_id and not prompt.get("completed", False):
             pending_hitl_prompts[prompt_id]["sent"] = True
             
             # Extract MCP-specific fields from context for legacy prompts too
