@@ -7,11 +7,8 @@ import { Card, CardHeader, CardContent } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectLabel, SelectGroup } from '@/components/ui/select'
-import { useHITL } from '@/hooks/use-hitl'
 import { useWorkflowStore } from '@/lib/stores'
-import { useSSE } from '@/hooks/use-sse'
-// Removed streaming chat - using autonomous agent mode only
-import { startWorkflow } from '@/lib/api'
+// All analysis now handled by lawyer agent - no legacy workflow imports needed
 import { cn } from '@/lib/utils'
 import { Send, Bot, User, ChevronDown, ChevronRight, Settings, X, Check, XIcon, Code, AlertTriangle, RotateCcw, Brain, MessageSquarePlus, List } from 'lucide-react'
 import { ChatList } from './ChatList'
@@ -182,9 +179,10 @@ interface HITLSidebarProps {
 }
 
 export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
-  const { sidebarOpen, progress, setSidebarOpen, currentWorkflow, setProgress, setHitlPrompt, setCurrentWorkflow } = useWorkflowStore()
-  const { hitlPrompt, isResponding, respond } = useHITL()
-  const [selectedOption, setSelectedOption] = useState<string | null>(null)
+  const { sidebarOpen, setSidebarOpen } = useWorkflowStore()
+  
+  // Debug logging
+  console.log('🔍 HITLSidebar render - sidebarOpen:', sidebarOpen)
   const [isQuerying, setIsQuerying] = useState(false)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const messageIdsRef = useRef<Set<string>>(new Set()) // Track message IDs to prevent duplicates
@@ -198,6 +196,88 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
   const [currentModel, setCurrentModel] = useState<string>('claude-sonnet-4-20250514')
   const [isModelLoading, setIsModelLoading] = useState(false)
   
+  // Listen for auto-analysis events
+  useEffect(() => {
+    console.log('🔍 Setting up auto-analysis event listener')
+    
+    const handleAutoAnalysisEvent = (event: CustomEvent) => {
+      console.log('🎉 Auto-analysis event received!', event.detail)
+      
+      const autoAnalysisPrompt = event.detail.prompt || sessionStorage.getItem('autoAnalysisPrompt')
+      
+      if (autoAnalysisPrompt) {
+        console.log('🤖 Starting auto-analysis chat...')
+        
+        // Clear the triggers
+        sessionStorage.removeItem('autoAnalysisTriggered')
+        sessionStorage.removeItem('autoAnalysisPrompt')
+        
+        // Trigger the auto-analysis directly
+        const triggerAutoChat = async () => {
+          console.log('🚀 triggerAutoChat starting...')
+          
+          // Ensure sidebar is in main chat view (not chat list)
+          setShowChatList(false)
+          setSelectedChat(null) // Start fresh chat
+          setIsQuerying(true)
+          
+          // Add user message immediately
+          const userMessage: ChatMessage = {
+            id: Date.now().toString(),
+            type: 'user',
+            content: autoAnalysisPrompt,
+            timestamp: new Date(),
+          }
+          setChatMessages([userMessage]) // Replace any existing messages
+          
+          try {
+            const response = await fetch(`${API_BASE_URL}/api/legal-chat/session`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                message: autoAnalysisPrompt, 
+                context: 'Auto-triggered compliance analysis',
+                chat_id: selectedChat?.id
+              })
+            })
+            
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`)
+            }
+            
+            const result = await response.json()
+            
+            // Auto-analysis started successfully - legal chat will handle the rest
+            console.log('✅ Legal chat session created:', result.workflow_id)
+          } catch (error) {
+            console.error('Failed to start auto-analysis:', error)
+            const errorMessage: ChatMessage = {
+              id: Date.now().toString(),
+              type: 'assistant',
+              content: `Error: Failed to start auto-analysis. ${error}`,
+              timestamp: new Date(),
+              is_reasoning_complete: true
+            }
+            setChatMessages(prev => [...prev, errorMessage])
+          } finally {
+            setIsQuerying(false)
+          }
+        }
+        
+        // Trigger the analysis immediately
+        setTimeout(triggerAutoChat, 200)
+      }
+    }
+    
+    // Add event listener
+    window.addEventListener('autoAnalysisTriggered', handleAutoAnalysisEvent as EventListener)
+    
+    // Cleanup function
+    return () => {
+      window.removeEventListener('autoAnalysisTriggered', handleAutoAnalysisEvent as EventListener)
+    }
+  }, []) // Only run once on mount
+
   // Load available models on component mount
   useEffect(() => {
     const loadModels = async () => {
@@ -235,29 +315,8 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // SSE connection for workflow progress
+  // API base URL for legal chat
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-  const sseUrl = currentWorkflow ? `${API_BASE_URL}/api/workflow/${currentWorkflow.id}/progress` : null
-  
-  useSSE(sseUrl || '', {
-    enabled: !!currentWorkflow,
-    onMessage: (data) => {
-      console.log('SSE message received:', data)
-      
-      if (data.type === 'progress') {
-        setProgress(data.payload)
-      } else if (data.type === 'hitl_prompt') {
-        setHitlPrompt(data.payload)
-      } else if (data.type === 'workflow_complete') {
-        setCurrentWorkflow(null)
-        setProgress(null)
-        setHitlPrompt(null)
-      }
-    },
-    onError: (error) => {
-      console.error('SSE connection error:', error)
-    }
-  })
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -305,14 +364,7 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
     }
   }, [isResizing])
 
-  const handleResponse = async (response: string) => {
-    try {
-      await respond(response)
-      setSelectedOption(null)
-    } catch (error) {
-      console.error('Failed to respond:', error)
-    }
-  }
+  // Legacy handleResponse removed - all interaction now through legal chat
 
   const handleModelChange = async (modelId: string) => {
     if (modelId === currentModel || isModelLoading) return
@@ -854,9 +906,9 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold text-gray-900">
-              {hitlPrompt || progress ? 'Workflow Assistant' : showChatList ? 'Chat History' : selectedChat ? selectedChat.title : 'Legal Chat'}
+              {showChatList ? 'Chat History' : selectedChat ? selectedChat.title : 'Legal Chat'}
             </h2>
-            {!showChatList && !hitlPrompt && !progress && (
+            {!showChatList && (
               <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
@@ -906,56 +958,7 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
       </div>
 
       <div className="flex-1 overflow-hidden flex flex-col">
-        {hitlPrompt ? (
-          <div className="p-4 overflow-y-auto">
-            <Card>
-              <CardHeader>
-                <h3 className="font-medium text-gray-900">Human Input Required</h3>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-gray-700">{hitlPrompt.question}</p>
-                
-                {hitlPrompt.context && Object.keys(hitlPrompt.context).length > 0 && (
-                  <div className="bg-gray-50 p-3 rounded-md">
-                    <h4 className="text-xs font-medium text-gray-600 uppercase tracking-wide mb-2">
-                      Context
-                    </h4>
-                    {Object.entries(hitlPrompt.context).map(([key, value]) => (
-                      <div key={key} className="mb-2">
-                        <span className="text-xs font-medium text-gray-600">{key}:</span>
-                        <p className="text-sm text-gray-800 mt-1">
-                          {typeof value === 'string' ? value : JSON.stringify(value)}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  {hitlPrompt.options.map((option) => (
-                    <Button
-                      key={option}
-                      variant={selectedOption === option ? "default" : "outline"}
-                      className="w-full justify-start"
-                      onClick={() => setSelectedOption(option)}
-                      disabled={isResponding}
-                    >
-                      {option}
-                    </Button>
-                  ))}
-                </div>
-
-                <Button
-                  className="w-full"
-                  onClick={() => selectedOption && handleResponse(selectedOption)}
-                  disabled={!selectedOption || isResponding}
-                >
-                  {isResponding ? 'Submitting...' : 'Submit Response'}
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        ) : showChatList ? (
+        {showChatList ? (
           /* Chat List View */
           <ChatList
             onSelectChat={handleSelectChat}

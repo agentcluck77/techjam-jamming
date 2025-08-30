@@ -5,7 +5,6 @@ import { Card, CardHeader, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { DocumentUpload } from '@/components/DocumentUpload'
-import { useWorkflow } from '@/hooks/use-workflow'
 import { useDocumentStore } from '@/lib/stores'
 import { getDocuments } from '@/lib/api'
 import { Document } from '@/lib/types'
@@ -15,7 +14,7 @@ export default function LegalDocuments() {
   const [legalDocuments, setLegalDocuments] = useState<Document[]>([])
   const [selectedDocs, setSelectedDocs] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
-  const { startNewWorkflow } = useWorkflow()
+  // Legacy workflow removed - all analysis now handled by lawyer agent
 
   useEffect(() => {
     const loadLegalDocuments = async () => {
@@ -51,7 +50,8 @@ export default function LegalDocuments() {
     
     try {
       // For now, start workflow with the first selected document
-      await startNewWorkflow('workflow_1', selectedDocs[0])
+      // Legacy workflow removed - analysis handled by lawyer agent
+      console.log('Analysis request for document:', selectedDocs[0])
     } catch (error) {
       console.error('Failed to start workflow 1:', error)
     }

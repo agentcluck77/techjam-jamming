@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { Card, CardHeader, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { DocumentUpload } from '@/components/DocumentUpload'
-import { useWorkflow } from '@/hooks/use-workflow'
 import { useDocumentStore } from '@/lib/stores'
 import { getRecentDocuments } from '@/lib/api'
 import { Document } from '@/lib/types'
@@ -13,7 +12,6 @@ import { CheckSquare, Clock, Settings, CheckCircle, Loader2, FileText } from 'lu
 export default function RequirementsCheck() {
   const [recentUploads, setRecentUploads] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
-  const { startNewWorkflow } = useWorkflow()
 
   useEffect(() => {
     const loadRecentUploads = async () => {
@@ -30,14 +28,10 @@ export default function RequirementsCheck() {
     loadRecentUploads()
   }, [])
 
-  const handleUploadComplete = async (documentId: string) => {
-    try {
-      // Start Workflow 3: Requirements → Legal Compliance
-      await startNewWorkflow('workflow_3', documentId)
-    } catch (error) {
-      console.error('Failed to start workflow:', error)
-    }
-  }
+        const handleUploadComplete = (documentId: string) => {
+        // All analysis now handled by lawyer agent in DocumentUpload component
+        console.log('📋 Document upload completed:', documentId)
+      }
 
   const formatTimeAgo = (dateString: string) => {
     const date = new Date(dateString)

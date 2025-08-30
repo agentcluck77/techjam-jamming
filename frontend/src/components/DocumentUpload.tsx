@@ -8,9 +8,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
-import { useDocumentStore } from '@/lib/stores'
+import { useDocumentStore, useWorkflowStore } from '@/lib/stores'
 import { uploadDocument } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 import { FileText, Edit, Link, Building, Sparkles, Lightbulb, CheckCircle } from 'lucide-react'
 
 interface DocumentUploadProps {
@@ -22,7 +23,8 @@ interface DocumentUploadProps {
 export function DocumentUpload({ documentType, onUploadComplete, className }: DocumentUploadProps) {
   const [uploading, setUploading] = useState(false)
   const [showLibraryPrompt, setShowLibraryPrompt] = useState(false)
-  const [uploadedDocument, setUploadedDocument] = useState<{ id: string; name: string } | null>(null)
+  const [uploadedDocument, setUploadedDocument] = useState<{ id: string; name: string; type: 'file' | 'text'; inputMode: string } | null>(null)
+  const [selectedJurisdictions, setSelectedJurisdictions] = useState<string[]>(['Global'])
   const [inputMode, setInputMode] = useState<'file' | 'text' | 'url'>('file')
   const [textContent, setTextContent] = useState('')
   const [urlInput, setUrlInput] = useState('')
@@ -31,13 +33,77 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
   const [showJurisdictionPrompt, setShowJurisdictionPrompt] = useState(false)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const { addDocument, addUploadProgress, updateUploadProgress, removeUploadProgress } = useDocumentStore()
+  const { setSidebarOpen } = useWorkflowStore()
 
-  // Common jurisdictions for quick selection
+  // Common jurisdictions for quick selection (for legal documents)
   const commonJurisdictions = [
     'Utah', 'California', 'Florida', 'Texas', 'New York',
     'European Union', 'United Kingdom', 'Canada', 'Australia', 
     'Brazil', 'India', 'Singapore', 'Japan', 'South Korea'
   ]
+
+  // Available jurisdictions for requirements analysis
+  const availableJurisdictions = [
+    'Global', 'Utah', 'California', 'Florida', 'Texas', 'New York',
+    'European Union', 'United Kingdom', 'Canada', 'Australia', 
+    'Brazil', 'India', 'Singapore', 'Japan', 'South Korea'
+  ]
+
+  // API base URL
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
+  // Universal auto-analysis function
+  const triggerAutoAnalysis = async (documentInfo: {
+    id: string,
+    name: string,
+    type: 'file' | 'text',
+    inputMode: string
+  }) => {
+    // Show toast notification
+    toast.success('Starting compliance analysis...')
+    
+    // Forcefully open sidebar and ensure it stays open
+    console.log('🔧 Force opening sidebar...')
+    setSidebarOpen(true)
+    
+    // Store the auto-analysis prompt for the sidebar to use
+    const autoPrompt = `Analyze requirements document '${documentInfo.name}' (ID: ${documentInfo.id}) for compliance across ${selectedJurisdictions.join(', ')}.
+
+Document Details:
+- Input Type: ${documentInfo.type === 'file' ? 'File Upload' : 'Text Input'}
+- Source: ${documentInfo.inputMode}
+- Uploaded: ${new Date().toISOString()}
+
+Please:
+1. Extract key requirements using MCP search
+2. Check against regulations in: ${selectedJurisdictions.join(', ')}
+3. Identify compliance gaps and risks
+4. Provide actionable recommendations
+
+Use the requirements MCP to search and analyze the full document content.`
+
+    // Store the prompt in sessionStorage for the sidebar to pick up
+    console.log('💾 Storing auto-analysis prompt in sessionStorage...')
+    console.log('📝 Prompt:', autoPrompt)
+    sessionStorage.setItem('autoAnalysisPrompt', autoPrompt)
+    sessionStorage.setItem('autoAnalysisTriggered', 'true')
+    
+    // Verify storage
+    console.log('✅ sessionStorage set:', {
+      autoAnalysisTriggered: sessionStorage.getItem('autoAnalysisTriggered'),
+      hasPrompt: !!sessionStorage.getItem('autoAnalysisPrompt')
+    })
+    
+    console.log('📡 Dispatching auto-analysis event...')
+    
+    // Dispatch a custom event to trigger the sidebar immediately
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('autoAnalysisTriggered', {
+        detail: { prompt: autoPrompt }
+      }))
+      console.log('🚀 Auto-analysis event dispatched!')
+    }, 100)
+  }
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0]
@@ -91,7 +157,12 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
 
       // Show library prompt for requirements documents
       if (documentType === 'requirements') {
-        setUploadedDocument({ id: document.id, name: document.name })
+        setUploadedDocument({ 
+          id: document.id, 
+          name: document.name,
+          type: 'file',
+          inputMode: 'file'
+        })
         setShowLibraryPrompt(true)
       }
 
@@ -119,10 +190,29 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
       return
     }
 
-    // For requirements documents, upload directly
-    const textBlob = new File([textContent], `requirements-${Date.now()}.txt`, { type: 'text/plain' })
-    await processUpload(textBlob)
-    setTextContent('') // Clear text after upload
+    // For requirements documents, upload directly and show library prompt
+    const fileName = `requirements-${Date.now()}.txt`
+    const textBlob = new File([textContent], fileName, { type: 'text/plain' })
+    
+    try {
+      const document = await uploadDocument(textBlob, documentType)
+      
+      // Show library prompt for requirements documents
+      if (documentType === 'requirements') {
+        setUploadedDocument({ 
+          id: document.id, 
+          name: fileName,
+          type: 'text',
+          inputMode: 'text'
+        })
+        setShowLibraryPrompt(true)
+      }
+      
+      setTextContent('') // Clear text after upload
+    } catch (error) {
+      console.error('Text upload failed:', error)
+      toast.error('Failed to upload text content')
+    }
   }
 
   const handleUrlUpload = async (selectedJurisdiction?: string) => {
@@ -176,7 +266,12 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
 
       // Show library prompt for requirements documents
       if (documentType === 'requirements') {
-        setUploadedDocument({ id: document.id, name: document.name })
+        setUploadedDocument({ 
+          id: document.id, 
+          name: document.name,
+          type: 'file',
+          inputMode: 'file'
+        })
         setShowLibraryPrompt(true)
       }
 
@@ -228,15 +323,24 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
   })
 
   const handleLibraryResponse = (addToLibrary: boolean) => {
+    console.log('🎯 handleLibraryResponse called:', { addToLibrary, uploadedDocument, selectedJurisdictions })
     setShowLibraryPrompt(false)
     
-    if (addToLibrary && uploadedDocument) {
-      // Document is already added to store, just continue
-      console.log(`Document ${uploadedDocument.name} added to library`)
+    if (uploadedDocument) {
+      if (addToLibrary) {
+        console.log(`Document ${uploadedDocument.name} added to library`)
+      }
+      
+      console.log('📞 About to trigger auto-analysis...')
+      // Trigger analysis for both options
+      triggerAutoAnalysis(uploadedDocument)
+    } else {
+      console.log('❌ No uploaded document to analyze')
     }
     
-    // Continue with analysis regardless of library choice
+    // Reset states
     setUploadedDocument(null)
+    setSelectedJurisdictions(['Global'])
   }
 
   return (
@@ -585,17 +689,53 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
             </DialogDescription>
           </DialogHeader>
           
-          <div className="py-4">
+          <div className="py-4 space-y-4">
             <p className="text-sm text-gray-700">
               Add this document to your library for future reference and organization?
             </p>
+            
+            {/* Jurisdiction Selection for Requirements Analysis */}
+            <div className="space-y-3">
+              <label className="text-sm font-medium text-gray-700">
+                Select Jurisdictions for Compliance Analysis:
+              </label>
+              <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto border rounded-md p-2 bg-gray-50">
+                {availableJurisdictions.map((jurisdiction) => (
+                  <label key={jurisdiction} className="flex items-center text-xs">
+                    <input
+                      type="checkbox"
+                      checked={selectedJurisdictions.includes(jurisdiction)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedJurisdictions(prev => [...prev, jurisdiction])
+                        } else {
+                          setSelectedJurisdictions(prev => prev.filter(j => j !== jurisdiction))
+                        }
+                      }}
+                      className="mr-2"
+                    />
+                    <span>{jurisdiction}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500">
+                Selected jurisdictions: {selectedJurisdictions.length === 0 ? 'None' : selectedJurisdictions.join(', ')}
+              </p>
+            </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => handleLibraryResponse(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => handleLibraryResponse(false)}
+              disabled={selectedJurisdictions.length === 0}
+            >
               Analysis Only
             </Button>
-            <Button onClick={() => handleLibraryResponse(true)}>
+            <Button 
+              onClick={() => handleLibraryResponse(true)}
+              disabled={selectedJurisdictions.length === 0}
+            >
               Analyse and Add to Library
             </Button>
           </DialogFooter>
