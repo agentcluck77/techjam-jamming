@@ -681,17 +681,111 @@ async def _agent_continue_after_hitl(session_id: str, user_response: str):
             if agent_state.pending_mcp_decision:
                 await _execute_approved_mcp_call(session_id)
             
-            # Resume agent loop
+            # Resume agent loop - RESTART THE AUTONOMOUS LOOP
             agent_state.status = "active"
+            # Get the original user message to resume with
+            original_message = ""
+            for msg in agent_state.conversation_history:
+                if msg['role'] == 'user' and not msg.get('hitl_response', False):
+                    original_message = msg['content']
+                    break
+            
+            # Restart the autonomous agent loop in background
+            import asyncio
+            asyncio.create_task(_resume_autonomous_agent(session_id, original_message))
+            
         else:
             # User declined - clear pending decision and continue
             agent_state.pending_mcp_decision = None
             agent_state.status = "active"
             
+            # Still resume the loop to let agent decide what to do next
+            original_message = ""
+            for msg in agent_state.conversation_history:
+                if msg['role'] == 'user' and not msg.get('hitl_response', False):
+                    original_message = msg['content']
+                    break
+            
+            import asyncio
+            asyncio.create_task(_resume_autonomous_agent(session_id, original_message))
+            
         logger.info(f"✅ Agent ready to continue after HITL")
         
     except Exception as e:
         logger.error(f"❌ Agent HITL continuation failed: {e}")
+
+async def _resume_autonomous_agent(session_id: str, original_message: str):
+    """
+    Resume the autonomous agent loop after HITL approval
+    """
+    
+    try:
+        logger.info(f"🔄 Resuming autonomous agent loop for session {session_id}")
+        
+        agent_state = agent_sessions[session_id]
+        
+        if agent_state.status != "active":
+            logger.info(f"❌ Agent not in active state, cannot resume: {agent_state.status}")
+            return
+        
+        # Main agent orchestration loop (resumed)
+        max_iterations = 8  # Fewer iterations since we've already started
+        iteration = 0
+        
+        while iteration < max_iterations and agent_state.status == "active":
+            iteration += 1
+            logger.info(f"🔄 Agent resume iteration {iteration}/{max_iterations}")
+            
+            # Get next action from LLM agent
+            next_action = await _agent_decide_next_action(session_id, original_message, None)
+            
+            if not next_action:
+                logger.warning(f"❌ Agent couldn't decide next action - ending resumed loop")
+                break
+                
+            logger.info(f"🎯 Agent resumed decision: {next_action.action_type}")
+            
+            # Execute the action
+            if next_action.action_type == "mcp_call":
+                # MCP calls require HITL approval - send HITL prompt first
+                await _agent_send_mcp_approval_prompt(session_id, next_action)
+                agent_state.status = "waiting_hitl"
+                break  # Wait for user approval
+            elif next_action.action_type == "analysis":
+                await _agent_perform_analysis(session_id, next_action)
+            elif next_action.action_type == "response":
+                await _agent_send_final_response(session_id, next_action)
+                break  # End the loop after final response
+            elif next_action.action_type == "hitl_prompt":
+                await _agent_send_hitl_prompt(session_id, next_action)
+                agent_state.status = "waiting_hitl"
+                break  # Wait for user input
+            
+            # Small delay to prevent overwhelming
+            await asyncio.sleep(0.5)
+        
+        if iteration >= max_iterations:
+            logger.warning(f"⚠️ Resumed agent hit max iterations limit")
+            agent_state.status = "completed"
+            # Send timeout message
+            active_workflows[session_id] = {
+                "id": session_id,
+                "status": "complete",
+                "final_response": "⏰ **Agent Analysis Complete**\n\nI've reached my processing limit for this session. The analysis I've performed so far is available above.",
+                "completed_at": datetime.now().isoformat()
+            }
+        
+    except Exception as e:
+        logger.error(f"❌ Autonomous agent resume failed for {session_id}: {e}")
+        agent_state = agent_sessions.get(session_id)
+        if agent_state:
+            agent_state.status = "error"
+        active_workflows[session_id] = {
+            "id": session_id,
+            "status": "error", 
+            "error": f"Agent resume encountered an error: {str(e)}",
+            "completed_at": datetime.now().isoformat()
+        }
 
 async def _execute_approved_mcp_call(session_id: str):
     """
