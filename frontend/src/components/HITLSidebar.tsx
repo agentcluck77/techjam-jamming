@@ -6,19 +6,30 @@ import { Progress } from '@/components/ui/progress'
 import { Card, CardHeader, CardContent } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useHITL } from '@/hooks/use-hitl'
 import { useWorkflowStore } from '@/lib/stores'
 import { useSSE } from '@/hooks/use-sse'
-import { useStreamingChat } from '@/hooks/use-streaming-chat'
+// Removed streaming chat - using autonomous agent mode only
 import { startWorkflow } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { Send, Bot, User, ChevronDown, ChevronRight, Brain, Settings, BarChart3, HelpCircle, Rocket, X, Check, XIcon, Code } from 'lucide-react'
+import { Send, Bot, User, ChevronDown, ChevronRight, Settings, X, Check, XIcon, Code, AlertTriangle, RotateCcw, Brain } from 'lucide-react'
 
 interface HITLPrompt {
   prompt_id: string
   question: string
   options: string[]
   context: Record<string, any>
+  mcp_tool?: string // For MCP approval prompts
+  mcp_query?: string // Query being executed
+  mcp_reason?: string // One-line reason why this MCP call is needed
+}
+
+interface ModelInfo {
+  name: string
+  description: string
+  input_tokens: number
+  output_tokens: number
 }
 
 interface ReasoningStep {
@@ -46,92 +57,27 @@ interface ChatMessage {
     raw_results?: any
   }
   mcp_approved?: boolean // Flag for approved MCP requests
+  awaiting_mcp_result?: boolean // Track pending MCP result after approval
+  mcp_result?: any // Store MCP result after approval
+  mcp_error?: string // Store MCP error if any
+  mcp_output_expanded?: { [key: string]: boolean } // Track MCP output toggle states
 }
 
-// Cursor-style reasoning dropdown component with streaming support
+// Utility: strip emojis from any incoming content
+function stripEmojis(input: string): string {
+  if (!input) return ''
+  try {
+    return input.replace(/([\u{1F000}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F100}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}])/gu, '').trim()
+  } catch {
+    // Simple fallback that removes common emoji ranges
+    return input.replace(/[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim()
+  }
+}
+
+// Simple reasoning dropdown component (static text, no streaming)
 function ReasoningDropdown({ message }: { message: ChatMessage }) {
-  // Auto-open when reasoning, auto-close when complete (unless user interacted)
-  const [isExpanded, setIsExpanded] = useState(message.is_reasoning_complete === false)
-  const [userInteracted, setUserInteracted] = useState(false)
-  const [isHovered, setIsHovered] = useState(false)
-  const [visibleSteps, setVisibleSteps] = useState<number>(0)
-  const [streamingSteps, setStreamingSteps] = useState<{[key: number]: string}>({}) // Track streaming content for each step
-  const [currentStreamingStep, setCurrentStreamingStep] = useState<number>(-1)
-  
-  // Auto-open when reasoning starts, auto-close when complete
-  useEffect(() => {
-    if (!userInteracted) {
-      setIsExpanded(message.is_reasoning_complete === false)
-    }
-  }, [message.is_reasoning_complete, userInteracted])
-
-  // Initialize streaming when reasoning first appears or new steps are added
-  useEffect(() => {
-    if (message.reasoning && message.reasoning.length > 0) {
-      const currentLength = message.reasoning.length
-      
-      // Start streaming if we have steps to show and no current streaming
-      if (currentLength > visibleSteps && currentStreamingStep === -1) {
-        startStreamingStep(visibleSteps)
-      }
-    }
-  }, [message.reasoning])
-
-  // Function to start streaming a specific step
-  const startStreamingStep = (stepIndex: number) => {
-    if (!message.reasoning || stepIndex >= message.reasoning.length) return
-    
-    const step = message.reasoning[stepIndex]
-    setCurrentStreamingStep(stepIndex)
-    
-    // Format the content: title + content combined
-    const stepTitle = step.type.replace('_', ' ').charAt(0).toUpperCase() + step.type.replace('_', ' ').slice(1)
-    const duration = step.duration ? ` (${step.duration.toFixed(1)}s)` : ''
-    const fullContent = `${stepTitle}${duration}\n${step.content}`
-    const tokens = fullContent.split(' ') // Split by tokens (words)
-    
-    let tokenIndex = 0
-    setStreamingSteps(prev => ({ ...prev, [stepIndex]: '' }))
-    
-    const streamInterval = setInterval(() => {
-      if (tokenIndex < tokens.length) {
-        const currentTokens = tokens.slice(0, tokenIndex + 1).join(' ')
-        setStreamingSteps(prev => ({ ...prev, [stepIndex]: currentTokens }))
-        tokenIndex++
-      } else {
-        // Step completed
-        clearInterval(streamInterval)
-        setVisibleSteps(prev => prev + 1)
-        setCurrentStreamingStep(-1)
-        
-        // Start next step after a brief delay
-        const nextStepIndex = stepIndex + 1
-        if (nextStepIndex < (message.reasoning?.length || 0)) {
-          setTimeout(() => {
-            startStreamingStep(nextStepIndex)
-          }, 300) // 300ms delay between steps
-        }
-      }
-    }, 100) // 100ms per token
-  }
-  
-  // Update expansion state when reasoning completes
-  useEffect(() => {
-    if (message.is_reasoning_complete === true && isExpanded && !userInteracted && !isHovered) {
-      // Only auto-collapse if user hasn't interacted and isn't hovering
-      const timer = setTimeout(() => {
-        setIsExpanded(false)
-      }, 3000) // Increased to 3 seconds
-      return () => clearTimeout(timer)
-    }
-  }, [message.is_reasoning_complete, isExpanded, userInteracted, isHovered])
-  
-  // Handle manual toggle - mark as user interaction
-  const handleToggle = () => {
-    setIsExpanded(!isExpanded)
-    setUserInteracted(true) // Prevent auto-close after manual interaction
-  }
-  
+  // Simple toggle state - default closed
+  const [isExpanded, setIsExpanded] = useState(false)
   if (!message.reasoning || message.reasoning.length === 0) {
     return null
   }
@@ -139,13 +85,9 @@ function ReasoningDropdown({ message }: { message: ChatMessage }) {
   const totalDuration = message.reasoning_duration || 0
   
   return (
-    <div 
-      className="mt-1 text-xs"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
+    <div className="mt-1 text-xs">
       <button
-        onClick={handleToggle}
+        onClick={() => setIsExpanded(!isExpanded)}
         className="flex items-center gap-1 text-gray-500 hover:text-gray-700 transition-colors"
       >
         {isExpanded ? (
@@ -157,50 +99,13 @@ function ReasoningDropdown({ message }: { message: ChatMessage }) {
       </button>
       
       {isExpanded && (
-        <div 
-          className="mt-1 ml-4 space-y-1 text-gray-600 bg-gray-50 rounded px-2 py-1 border-l-2 border-gray-300 max-h-64 overflow-y-auto"
-          onMouseEnter={() => setIsHovered(true)}
-          onMouseLeave={() => setIsHovered(false)}
-          onScroll={() => setUserInteracted(true)}
-        >
-          {/* Completed steps */}
-          {message.reasoning.slice(0, visibleSteps).map((step, index) => (
-            <div 
-              key={index} 
-              className="text-xs"
-            >
-              <div className="flex items-center gap-1 font-medium text-gray-700">
-                {step.type === 'llm_decision' && <Brain className="w-3 h-3" />}
-                {step.type === 'mcp_call' && <Settings className="w-3 h-3" />}
-                {step.type === 'analysis' && <BarChart3 className="w-3 h-3" />}
-                {step.type === 'hitl_prompt' && <HelpCircle className="w-3 h-3" />}
-                {step.type === 'agent_startup' && <Rocket className="w-3 h-3" />}
-                <span className="capitalize">{step.type.replace('_', ' ')}</span>
-                {step.duration && <span className="text-gray-500">({step.duration.toFixed(1)}s)</span>}
-              </div>
-              <div className="ml-4 text-gray-600 mt-0.5">{step.content}</div>
+        <div className="mt-1 ml-4 space-y-1 text-gray-600 bg-gray-50 rounded px-2 py-1 border-l-2 border-gray-300 max-h-64 overflow-y-auto">
+          {/* All reasoning steps as static text */}
+          {message.reasoning.map((step, index) => (
+            <div key={index} className="text-xs whitespace-pre-wrap text-gray-600">
+              {stripEmojis(step.content)}
             </div>
           ))}
-          
-          {/* Currently streaming step */}
-          {currentStreamingStep >= 0 && message.reasoning && message.reasoning[currentStreamingStep] && (
-            <div className="text-xs animate-fade-in">
-              <div className="whitespace-pre-wrap text-gray-600">
-                {streamingSteps[currentStreamingStep] || ''}
-                <span className="inline-block w-0.5 h-4 bg-blue-500 animate-blink ml-0.5" />
-              </div>
-            </div>
-          )}
-          
-          {/* Show a loading indicator for the next step if reasoning isn't complete */}
-          {!message.is_reasoning_complete && visibleSteps < (message.reasoning?.length || 0) && (
-            <div className="text-xs text-gray-400 animate-pulse">
-              <div className="flex items-center gap-1 font-medium">
-                <div className="w-3 h-3 bg-gray-300 rounded animate-pulse" />
-                <span>Processing...</span>
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -239,6 +144,38 @@ function ExpandableJSON({ data, label = "Raw Results" }: { data: any, label?: st
   )
 }
 
+// MCP Output toggle component for approved messages
+function MCPOutputToggle({ result, messageId }: { result: any, messageId: string }) {
+  const [isExpanded, setIsExpanded] = useState(false)
+  
+  if (!result) return null
+  
+  return (
+    <div className="mt-2 border-t border-green-300 pt-2">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="flex items-center gap-1 text-xs text-green-700 hover:text-green-800 transition-colors"
+      >
+        {isExpanded ? (
+          <ChevronDown className="w-3 h-3" />
+        ) : (
+          <ChevronRight className="w-3 h-3" />
+        )}
+        <Code className="w-3 h-3" />
+        <span>MCP Output</span>
+      </button>
+      
+      {isExpanded && (
+        <div className="mt-2 max-h-64 overflow-y-auto bg-gray-900 rounded border text-xs">
+          <pre className="p-2 text-green-400 whitespace-pre-wrap overflow-x-auto">
+            {JSON.stringify(result, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function HITLSidebar() {
   const { sidebarOpen, progress, setSidebarOpen, currentWorkflow, setProgress, setHitlPrompt, setCurrentWorkflow } = useWorkflowStore()
   const { hitlPrompt, isResponding, respond } = useHITL()
@@ -246,9 +183,30 @@ export function HITLSidebar() {
   const [isQuerying, setIsQuerying] = useState(false)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const messageIdsRef = useRef<Set<string>>(new Set()) // Track message IDs to prevent duplicates
-  const [useRealStreaming, setUseRealStreaming] = useState(true) // Toggle between real streaming and old system
-  const streamingChat = useStreamingChat() // Real streaming hook
+  // Always use autonomous agent mode (no streaming toggle)
   
+  // Model selection state
+  const [availableModels, setAvailableModels] = useState<Record<string, ModelInfo>>({})
+  const [currentModel, setCurrentModel] = useState<string>('gemini-1.5-flash')
+  const [isModelLoading, setIsModelLoading] = useState(false)
+  
+  // Load available models on component mount
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/models/available`)
+        if (response.ok) {
+          const data = await response.json()
+          setAvailableModels(data.gemini_models || {})
+          setCurrentModel(data.current_model || 'gemini-1.5-flash')
+        }
+      } catch (error) {
+        console.error('Failed to load models:', error)
+      }
+    }
+    loadModels()
+  }, [])
+
   // Debug logging for message changes
   useEffect(() => {
     const mcpCount = chatMessages.filter(m => m.type === 'mcp_call').length
@@ -257,6 +215,8 @@ export function HITLSidebar() {
   const [chatInput, setChatInput] = useState('')
   const [sidebarWidth, setSidebarWidth] = useState(320) // 320px = w-80
   const [isResizing, setIsResizing] = useState(false)
+  const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(null)
+  const activePollingRef = useRef<Set<string>>(new Set()) // Track active polling loops
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -288,9 +248,7 @@ export function HITLSidebar() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  useEffect(() => {
-    scrollToBottom()
-  }, [chatMessages])
+  // Removed auto-scroll - let user control scrolling manually
 
   // Resize functionality
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -336,121 +294,94 @@ export function HITLSidebar() {
     }
   }
 
+  const handleModelChange = async (modelId: string) => {
+    if (modelId === currentModel || isModelLoading) return
+    
+    setIsModelLoading(true)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/models/select`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model_id: modelId }),
+      })
+      
+      if (response.ok) {
+        setCurrentModel(modelId)
+        console.log(`Model switched to: ${modelId}`)
+      } else {
+        console.error('Failed to switch model:', await response.text())
+      }
+    } catch (error) {
+      console.error('Error switching model:', error)
+    } finally {
+      setIsModelLoading(false)
+    }
+  }
+
 
   const handleChatSend = async () => {
     if (!chatInput.trim()) return
     
     const originalInput = chatInput
     setChatInput('')
+    setIsQuerying(true)
     
-    if (useRealStreaming) {
-      // Use real streaming
-      await streamingChat.sendMessage(originalInput)
-      return
-    }
-    
-    // Old system (for fallback)
+    // Add user message immediately
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       type: 'user',
       content: originalInput,
       timestamp: new Date(),
     }
+    setChatMessages(prev => [...prev, userMessage])
     
-    // Add user message with deduplication
-    if (!messageIdsRef.current.has(userMessage.id)) {
-      messageIdsRef.current.add(userMessage.id)
-      setChatMessages(prev => [...prev, userMessage])
-    }
-    setIsQuerying(true)
-    
+    // Use autonomous agent with MCP approval flow
     try {
-      const response = await fetch(`${API_BASE_URL}/api/legal-chat`, {
+      const response = await fetch('/api/legal-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: originalInput })
+        body: JSON.stringify({ message: originalInput, context: '' })
       })
       
       if (!response.ok) {
-        throw new Error('Failed to get response from lawyer agent')
+        throw new Error(`HTTP ${response.status}`)
       }
       
       const result = await response.json()
       
-      // Only add message if it's not a generic "Analyzing" status message
-      // Skip generic status messages - just show reasoning dropdown directly
-      if (!result.response?.includes('Analyzing your request') && result.response?.trim() !== '⏳ Analyzing your request...') {
-        const initialMessage: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          type: 'assistant',
-          content: result.response || 'No response received from lawyer agent',
-          timestamp: new Date(),
-          workflow_id: result.workflow_id,
-          reasoning: result.reasoning?.map((step: any) => ({
-            type: step.type,
-            content: step.content,
-            duration: step.duration,
-            timestamp: new Date(step.timestamp)
-          })),
-          reasoning_duration: result.reasoning_duration,
-          is_reasoning_complete: result.is_reasoning_complete
-        }
-        
-        // Add assistant message with deduplication
-        if (!messageIdsRef.current.has(initialMessage.id)) {
-          messageIdsRef.current.add(initialMessage.id)
-          setChatMessages(prev => [...prev, initialMessage])
-        }
-      } else {
-        // For "Analyzing" messages, just create a reasoning-only message
-        if (result.reasoning && result.reasoning.length > 0) {
-          const reasoningMessage: ChatMessage = {
-            id: (Date.now() + 1).toString(),
-            type: 'assistant',
-            content: '', // Empty content - will only show reasoning dropdown
-            timestamp: new Date(),
-            workflow_id: result.workflow_id,
-            reasoning: result.reasoning?.map((step: any) => ({
-              type: step.type,
-              content: step.content,
-              duration: step.duration,
-              timestamp: new Date(step.timestamp)
-            })),
-            reasoning_duration: result.reasoning_duration,
-            is_reasoning_complete: result.is_reasoning_complete
-          }
-          
-          // Add reasoning message with deduplication
-          if (!messageIdsRef.current.has(reasoningMessage.id)) {
-            messageIdsRef.current.add(reasoningMessage.id)
-            setChatMessages(prev => [...prev, reasoningMessage])
-          }
-        }
-      }
-      
-      // If a workflow was started, start polling for HITL prompts and responses
-      if (result.workflow_started && result.workflow_id) {
+      if (result.workflow_id) {
+        setCurrentWorkflowId(result.workflow_id)
         await pollForWorkflowMessages(result.workflow_id)
       }
     } catch (error) {
-      console.error('Legal chat error:', error)
+      console.error('Failed to start legal chat workflow:', error)
+      // Add error message
       const errorMessage: ChatMessage = {
-        id: (Date.now() + 2).toString(),
+        id: Date.now().toString(),
         type: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: `Error: Failed to start analysis. ${error}`,
         timestamp: new Date(),
+        is_reasoning_complete: true
       }
-      // Add error message with deduplication
-      if (!messageIdsRef.current.has(errorMessage.id)) {
-        messageIdsRef.current.add(errorMessage.id)
-        setChatMessages(prev => [...prev, errorMessage])
-      }
+      setChatMessages(prev => [...prev, errorMessage])
     } finally {
       setIsQuerying(false)
     }
   }
 
+
   const pollForWorkflowMessages = async (workflowId: string) => {
+    // Prevent duplicate polling loops for the same workflow
+    if (activePollingRef.current.has(workflowId)) {
+      console.log(`🔄 Polling already active for workflow ${workflowId}, skipping duplicate`)
+      return
+    }
+    
+    activePollingRef.current.add(workflowId)
+    console.log(`🔄 Starting polling for workflow ${workflowId}`)
+    
     let isPolling = true
     const maxPolls = 300 // Max 5 minutes of polling (1 second intervals)
     let pollCount = 0
@@ -484,7 +415,34 @@ export function HITLSidebar() {
           console.log('🔍 No MCP executions in result')
         }
         
-        // Check if we got a HITL prompt
+        // FIRST: Process any MCP executions to display results
+        if (result.mcp_executions && result.mcp_executions.length > 0) {
+          console.log('🔍 Adding MCP messages:', result.mcp_executions)
+          result.mcp_executions.forEach((mcpExec: any) => {
+            const mcpMessage: ChatMessage = {
+              id: `mcp-${Date.now()}-${Math.random()}`,
+              type: 'mcp_call',
+              content: `🔍 **${mcpExec.tool.replace('_', ' ').toUpperCase()}**\n\n📝 **Query:** ${mcpExec.query}\n\n📊 **Results:** ${mcpExec.result_summary}\n\n⏱️ *${mcpExec.execution_time.toFixed(2)}s*`,
+              timestamp: new Date(mcpExec.timestamp),
+              workflow_id: workflowId,
+              mcp_details: {
+                tool: mcpExec.tool,
+                query: mcpExec.query,
+                results_count: mcpExec.results_count,
+                execution_time: mcpExec.execution_time,
+                raw_results: mcpExec.raw_results
+              }
+            }
+            
+            // Add MCP message with deduplication
+            if (!messageIdsRef.current.has(mcpMessage.id)) {
+              messageIdsRef.current.add(mcpMessage.id)
+              setChatMessages(prev => [...prev, mcpMessage])
+            }
+          })
+        }
+        
+        // SECOND: Check if we got a HITL prompt (after processing MCP results)
         if (result.hitl_prompt) {
           const hitlMessage: ChatMessage = {
             id: Date.now().toString(),
@@ -503,7 +461,7 @@ export function HITLSidebar() {
           // Stop polling - we'll restart after user responds
           isPolling = false
         }
-        // Check if workflow is complete
+        // THIRD: Check if workflow is complete
         else if (!result.workflow_started || result.response.includes('Analysis Failed') || result.response.includes('complete')) {
           // Only add final message if it has meaningful content AND reasoning is complete AND not already sent
           if (result.response && 
@@ -542,47 +500,6 @@ export function HITLSidebar() {
           } else {
             isPolling = false
           }
-        }
-        // Check for new MCP executions to display as chat messages
-        if (result.mcp_executions && result.mcp_executions.length > 0) {
-          console.log('🔍 Adding MCP messages:', result.mcp_executions)
-          console.log('🔍 First MCP execution details:', {
-            tool: result.mcp_executions[0]?.tool,
-            query: result.mcp_executions[0]?.query,
-            has_raw_results: !!result.mcp_executions[0]?.raw_results,
-            raw_results_preview: JSON.stringify(result.mcp_executions[0]?.raw_results || {}).substring(0, 200)
-          })
-          result.mcp_executions.forEach(mcpExec => {
-            const mcpMessage: ChatMessage = {
-              id: `mcp-${Date.now()}-${Math.random()}`,
-              type: 'mcp_call',
-              content: `🔍 **${mcpExec.tool.replace('_', ' ').toUpperCase()}**\n\n📝 **Query:** ${mcpExec.query}\n\n📊 **Results:** ${mcpExec.result_summary}\n\n⏱️ *${mcpExec.execution_time.toFixed(2)}s*`,
-              timestamp: new Date(mcpExec.timestamp),
-              workflow_id: workflowId,
-              mcp_details: {
-                tool: mcpExec.tool,
-                query: mcpExec.query,
-                results_count: mcpExec.results_count,
-                execution_time: mcpExec.execution_time,
-                raw_results: mcpExec.raw_results
-              }
-            }
-            
-            console.log('🔍 Adding MCP message:', mcpMessage.id, mcpMessage.content.substring(0, 50))
-            
-            // Add MCP message with deduplication
-            if (!messageIdsRef.current.has(mcpMessage.id)) {
-              messageIdsRef.current.add(mcpMessage.id)
-              setChatMessages(prev => {
-                console.log('🔍 Current messages before adding MCP:', prev.length)
-                const newMessages = [...prev, mcpMessage]
-                console.log('🔍 Messages after adding MCP:', newMessages.length, 'MCP ID:', mcpMessage.id)
-                return newMessages
-              })
-            } else {
-              console.log('🔍 Skipping duplicate MCP message:', mcpMessage.id)
-            }
-          })
         }
         
         // Still in progress - update existing message with new reasoning
@@ -648,6 +565,10 @@ export function HITLSidebar() {
         break
       }
     }
+    
+    // Cleanup: Remove from active polling set when done
+    activePollingRef.current.delete(workflowId)
+    console.log(`🔄 Stopped polling for workflow ${workflowId}`)
   }
 
   const handleHITLResponse = async (message: ChatMessage, response: string) => {
@@ -697,36 +618,94 @@ export function HITLSidebar() {
       // Transform HITL prompt to approved state instead of removing
       const isApproved = response.toLowerCase().includes('approve')
       
+      // Add audit line to reasoning of the most recent assistant message
+      const addAuditLineToRecentThoughts = (action: string, tool: string, query: string) => {
+        setChatMessages(prev => {
+          // Find the most recent assistant message
+          let targetMessageIndex = -1
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].type === 'assistant' && prev[i].reasoning) {
+              targetMessageIndex = i
+              break
+            }
+          }
+          
+          if (targetMessageIndex >= 0) {
+            const targetMessage = prev[targetMessageIndex]
+            const auditStep: ReasoningStep = {
+              type: 'hitl_prompt',
+              content: `User ${action} ${tool}${query ? ` (query=${query.substring(0, 50)}...)` : ''}`,
+              timestamp: new Date()
+            }
+            
+            const updatedMessage = {
+              ...targetMessage,
+              reasoning: [...(targetMessage.reasoning || []), auditStep]
+            }
+            
+            const newMessages = [...prev]
+            newMessages[targetMessageIndex] = updatedMessage
+            return newMessages
+          }
+          return prev
+        })
+      }
+      
       if (isApproved) {
-        // Transform to green approved message
+        const tool = message.hitl_prompt?.mcp_tool || message.hitl_prompt?.context?.mcp_tool || 'MCP'
+        const query = message.hitl_prompt?.mcp_query || message.hitl_prompt?.context?.query || ''
+        
+        // Add audit line
+        addAuditLineToRecentThoughts('approved', tool, query)
+        
+        // Transform to green approved message with MCP result summary
         setTimeout(() => {
           setChatMessages(prev => prev.map(msg => {
             if (msg.id === message.id && msg.hitl_prompt) {
+              // Prepare approved content with summary
+              let approvedContent = ''
+              let mcpResult = null
+              
+              if (msg.hitl_prompt.mcp_tool) {
+                approvedContent = `Approved: ${stripEmojis(msg.hitl_prompt.mcp_tool)} — Processing query...`
+                // Store MCP details for later result population
+                mcpResult = {
+                  tool: msg.hitl_prompt.mcp_tool,
+                  query: msg.hitl_prompt.mcp_query,
+                  reason: msg.hitl_prompt.mcp_reason
+                }
+              } else {
+                approvedContent = `Approved: ${stripEmojis(msg.hitl_prompt.context?.mcp_tool || 'action')} — ${stripEmojis(msg.hitl_prompt.context?.query?.substring(0, 50) || 'query')}...`
+              }
+              
               return {
                 ...msg,
                 type: 'assistant' as const, // Change from hitl_prompt to assistant for styling
-                content: `Approved: ${msg.hitl_prompt.context?.mcp_tool || 'mcp_tool'}: ${msg.hitl_prompt.context?.query?.substring(0, 50) || 'query'}...`,
+                content: approvedContent,
                 hitl_prompt: undefined, // Remove the prompt to hide buttons
-                mcp_approved: true // Add flag for green styling
+                mcp_approved: true, // Add flag for green styling
+                awaiting_mcp_result: true, // Flag to indicate waiting for result
+                mcp_result: mcpResult // Store MCP details for result display
               }
             }
             return msg
           }))
         }, 200)
       } else {
+        const tool = message.hitl_prompt?.mcp_tool || message.hitl_prompt?.context?.mcp_tool || 'MCP'
+        const query = message.hitl_prompt?.mcp_query || message.hitl_prompt?.context?.query || ''
+        
+        // Add audit line for skip
+        addAuditLineToRecentThoughts('skipped', tool, query)
+        
         // If skipped, remove the message
         setTimeout(() => {
           setChatMessages(prev => prev.filter(msg => msg.id !== message.id))
         }, 500)
       }
       
-      // Start polling immediately - no delay
-      pollForWorkflowMessages(message.workflow_id!)
-      
-      // Also poll again shortly after to catch any rapid updates
-      setTimeout(async () => {
-        await pollForWorkflowMessages(message.workflow_id!)
-      }, 100)
+      // Start polling (will be skipped if already active)
+      await pollForWorkflowMessages(message.workflow_id!)
       
     } catch (error) {
       console.error('❌ Failed to send HITL response:', error)
@@ -749,12 +728,6 @@ export function HITLSidebar() {
     }
   }
 
-  const handleChatKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleChatSend()
-    }
-  }
 
   // Always render sidebar, but show/hide with transform
   const isVisible = sidebarOpen || true // Always show for now
@@ -872,52 +845,8 @@ export function HITLSidebar() {
                 </div>
               )}
               
-              {/* Show streaming messages if using real streaming, otherwise show old messages */}
-              {useRealStreaming ? (
-                streamingChat.messages.map((message) => (
-                  <div key={message.id} className="space-y-1">
-                    <div
-                      className={cn(
-                        "flex gap-2",
-                        message.type === 'user' ? 'justify-end' : 'justify-start'
-                      )}
-                    >
-                      {message.type !== 'user' && (
-                        <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 bg-blue-100">
-                          <Bot className="w-4 h-4 text-blue-600" />
-                        </div>
-                      )}
-                      
-                      <div className={cn(
-                        "rounded-lg px-3 py-2 max-w-[80%] text-sm",
-                        message.type === 'user' 
-                          ? 'bg-blue-500 text-white' 
-                          : 'bg-gray-100 text-gray-900'
-                      )}>
-                        <div className="whitespace-pre-wrap">
-                          {message.content}
-                          {message.isStreaming && (
-                            <span className="animate-pulse ml-1 text-blue-500">▊</span>
-                          )}
-                        </div>
-                        <div className="text-xs mt-1 opacity-70">
-                          {message.timestamp.toLocaleTimeString()}
-                          {message.isStreaming && (
-                            <span className="ml-2 text-blue-500">Streaming...</span>
-                          )}
-                        </div>
-                      </div>
-                      
-                      {message.type === 'user' && (
-                        <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 bg-blue-500">
-                          <User className="w-4 h-4 text-white" />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                chatMessages.map((message) => (
+              {/* Show regular chat messages with MCP approval support */}
+              {chatMessages.map((message) => (
                 <div key={message.id} className="space-y-1">
                   <div
                     className={cn(
@@ -961,7 +890,7 @@ export function HITLSidebar() {
                                 : 'bg-gray-100 text-gray-900 rounded-bl-sm'
                             )}
                           >
-                            <p className="whitespace-pre-wrap">{message.content}</p>
+                            <p className="whitespace-pre-wrap">{stripEmojis(message.content)}</p>
                           </div>
                         )}
                         
@@ -977,23 +906,48 @@ export function HITLSidebar() {
                             label="Raw Results"
                           />
                         )}
+                        
+                        {/* MCP Output toggle for approved messages */}
+                        {message.mcp_approved && message.mcp_result && (
+                          <MCPOutputToggle 
+                            result={message.mcp_result} 
+                            messageId={message.id}
+                          />
+                        )}
                       </div>
                     )}
                   
                   {/* HITL Prompt Inline Message */}
                   {message.type === 'hitl_prompt' && message.hitl_prompt && (
                     <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 text-sm max-w-[280px]">
-                      <p className="text-orange-800 font-medium mb-2">{message.hitl_prompt.question}</p>
-                      
-                      {/* Context info if available */}
-                      {message.hitl_prompt.context && Object.keys(message.hitl_prompt.context).length > 0 && (
-                        <div className="bg-orange-100 rounded px-2 py-1 mb-2 text-xs text-orange-700">
-                          {Object.entries(message.hitl_prompt.context).slice(0, 2).map(([key, value]) => (
-                            <div key={key}>
-                              <strong>{key}:</strong> {typeof value === 'string' ? value.slice(0, 50) + '...' : JSON.stringify(value).slice(0, 50) + '...'}
-                            </div>
-                          ))}
+                      {/* MCP-specific approval prompt layout */}
+                      {message.hitl_prompt.mcp_tool ? (
+                        <div>
+                          <div className="text-orange-800 font-medium mb-2">
+                            MCP Approval Required
+                          </div>
+                          <div className="space-y-1 text-xs text-orange-700 mb-3">
+                            <div><strong>Tool:</strong> {stripEmojis(message.hitl_prompt.mcp_tool)}</div>
+                            <div><strong>Query:</strong> {stripEmojis(message.hitl_prompt.mcp_query || 'N/A')}</div>
+                            <div><strong>Reason:</strong> {stripEmojis(message.hitl_prompt.mcp_reason || 'Processing request')}</div>
+                          </div>
                         </div>
+                      ) : (
+                        /* Regular HITL prompt */
+                        <>
+                          <p className="text-orange-800 font-medium mb-2">{stripEmojis(message.hitl_prompt.question)}</p>
+                          
+                          {/* Context info if available */}
+                          {message.hitl_prompt.context && Object.keys(message.hitl_prompt.context).length > 0 && (
+                            <div className="bg-orange-100 rounded px-2 py-1 mb-2 text-xs text-orange-700">
+                              {Object.entries(message.hitl_prompt.context).slice(0, 2).map(([key, value]) => (
+                                <div key={key}>
+                                  <strong>{key}:</strong> {typeof value === 'string' ? stripEmojis(value.slice(0, 50)) + '...' : JSON.stringify(value).slice(0, 50) + '...'}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </>
                       )}
                       
                       {/* Interactive buttons */}
@@ -1061,34 +1015,59 @@ export function HITLSidebar() {
             
             {/* Fixed Chat Input at Bottom */}
             <div className="border-t border-gray-200 p-4">
-              <div className="space-y-2">
-                {/* Streaming toggle */}
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">
-                    {useRealStreaming ? '🌊 Real Token Streaming' : '⏳ Legacy Polling'}
-                  </span>
-                  <Button
-                    onClick={() => setUseRealStreaming(!useRealStreaming)}
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-xs"
+              <div className="space-y-3">
+                {/* Model Selector */}
+                <div className="flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-gray-500" />
+                  <Select
+                    value={currentModel}
+                    onValueChange={handleModelChange}
+                    disabled={isModelLoading || isQuerying}
                   >
-                    {useRealStreaming ? 'Legacy' : 'Streaming'}
-                  </Button>
+                    <SelectTrigger className="h-8 text-xs flex-1">
+                      <SelectValue>
+                        <div className="flex items-center gap-1">
+                          <span className="truncate">
+                            {availableModels[currentModel]?.name || currentModel}
+                          </span>
+                          {isModelLoading && (
+                            <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                          )}
+                        </div>
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(availableModels).map(([modelId, modelInfo]) => (
+                        <SelectItem key={modelId} value={modelId} className="text-xs">
+                          <div className="flex flex-col items-start">
+                            <span className="font-medium">{modelInfo.name}</span>
+                            <span className="text-gray-500 text-xs truncate">
+                              {modelInfo.description}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 
                 <div className="flex gap-2">
                   <Input
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
-                    onKeyPress={handleChatKeyPress}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleChatSend()
+                      }
+                    }}
                     placeholder="Ask about compliance..."
                     className="flex-1 text-sm"
-                    disabled={useRealStreaming ? streamingChat.isStreaming : isQuerying}
+                    disabled={isQuerying}
                   />
                   <Button
                     onClick={handleChatSend}
-                    disabled={!chatInput.trim() || (useRealStreaming ? streamingChat.isStreaming : isQuerying)}
+                    disabled={!chatInput.trim() || isQuerying}
                     size="sm"
                     className="px-3"
                   >

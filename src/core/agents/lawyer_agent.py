@@ -544,14 +544,14 @@ For requesting clarification, specify:
 If calling MCP, specify:
 - Which MCP tool to call (exact name from available tools)
 - What specific legal question/focus area to analyze
-- Why this information is needed
+- BRIEF reason (maximum 10 words) why this information is needed
 
 Respond ONLY with valid JSON:
 {{
     "action": "call_mcp" or "finalize",
     "mcp_tool_name": "exact_tool_name_from_list",
     "query_focus": "specific legal question to analyze",
-    "reasoning": "why this action/tool is needed for complete analysis"
+    "reasoning": "brief 10-word reason for this action"
 }}"""
         
         try:

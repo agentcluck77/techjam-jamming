@@ -41,6 +41,9 @@ class HITLPrompt(BaseModel):
     question: str
     options: list[str]
     context: dict = {}
+    mcp_tool: Optional[str] = None  # For MCP approval prompts
+    mcp_query: Optional[str] = None  # Query being executed
+    mcp_reason: Optional[str] = None  # One-line reason why this MCP call is needed
 
 class ReasoningStep(BaseModel):
     type: str  # 'llm_decision', 'mcp_call', 'analysis', 'hitl_prompt'
@@ -78,6 +81,7 @@ class AgentState(BaseModel):
     pending_mcp_decision: Optional[Dict[str, str]] = None
     status: str = "active"  # active, waiting_hitl, completed, error
     mcp_sent_count: int = 0  # Track sent MCP executions atomically
+    mcp_executions_for_chat: List[Dict[str, Any]] = []  # Store MCP executions for frontend display
 
 @router.post("/legal-chat-stream")
 async def legal_compliance_chat_stream(request: ChatRequest):
@@ -338,7 +342,7 @@ DECISION FORMAT:
 Respond with ONE action type and explain your reasoning:
 
 ACTION_TYPE: [mcp_call|analysis|response|hitl_prompt]
-REASONING: [why you chose this action AND how it advances beyond your previous steps]
+REASONING: [brief 15-word reason for this action choice]
 RESPONSE_CONTENT: [if action_type is "response", provide the complete final response to the user here]
 DETAILS: [specific details for other action types]
 
@@ -494,9 +498,10 @@ Based on the conversation context and what you're trying to accomplish, decide:
 RESPONSE FORMAT:
 TOOL: [legal_mcp|requirements_mcp]
 QUERY: [your specific search query]
-REASONING: [why you chose this tool and query]
+REASONING: [brief 10-word reason for tool choice]
 
-Make your decision based purely on context and reasoning - no keyword matching allowed."""
+Make your decision based purely on context and reasoning - no keyword matching allowed.
+KEEP REASONING BRIEF: Maximum 10 words explaining your choice."""
 
     try:
         response = await llm_client.complete(
@@ -738,15 +743,17 @@ async def _agent_send_mcp_approval_prompt(session_id: str, action: AgentAction):
             logger.error("❌ Failed to get MCP tool decision")
             return
             
-        # Create HITL prompt for MCP approval
+        # Create HITL prompt for MCP approval with correct field names
         await send_hitl_prompt(session_id, {
             "type": "mcp_approval",
             "question": f"I want to search {tool_decision['tool']} for: '{tool_decision['query']}'. Should I proceed?",
             "options": ["Approve", "Skip"],
             "context": {
                 "mcp_tool": tool_decision['tool'],
-                "query": tool_decision['query'],
-                "reasoning": tool_decision['reasoning'],
+                "mcp_query": tool_decision['query'],  # Use mcp_query field name
+                "mcp_reason": tool_decision['reasoning'],  # Use mcp_reason field name
+                "query": tool_decision['query'],  # Keep legacy field for fallback
+                "reasoning": tool_decision['reasoning'],  # Keep legacy field for fallback
                 "action_details": action.details
             }
         })
@@ -1065,6 +1072,12 @@ async def poll_for_next_message(workflow_id: str):
                 # Mark as sent
                 pending_hitl_prompts[prompt_id]["sent"] = True
                 
+                # Extract MCP-specific fields from context for MCP approval prompts
+                context = prompt.get("context", {})
+                mcp_tool = context.get("mcp_tool")
+                mcp_query = context.get("mcp_query") or context.get("query")  # Prioritize mcp_query
+                mcp_reason = context.get("mcp_reason") or context.get("reasoning")  # Prioritize mcp_reason
+                
                 return ChatResponse(
                     response=f"🤖 **Agent Approval Required**\n\n{prompt.get('question', 'Should I proceed?')}",
                     timestamp=datetime.now().isoformat(),
@@ -1074,7 +1087,10 @@ async def poll_for_next_message(workflow_id: str):
                         prompt_id=prompt_id,
                         question=prompt.get("question", "Should I proceed with this action?"),
                         options=prompt.get("options", ["Approve", "Skip"]),
-                        context=prompt.get("context", {})
+                        context=context,
+                        mcp_tool=mcp_tool,
+                        mcp_query=mcp_query,
+                        mcp_reason=mcp_reason
                     )
                 )
         
@@ -1191,6 +1207,12 @@ async def poll_for_next_message(workflow_id: str):
         if prompt.get("workflow_id") == workflow_id and not prompt.get("sent", False):
             pending_hitl_prompts[prompt_id]["sent"] = True
             
+            # Extract MCP-specific fields from context for legacy prompts too
+            context = prompt.get("context", {})
+            mcp_tool = context.get("mcp_tool")
+            mcp_query = context.get("mcp_query") or context.get("query")  # Prioritize mcp_query
+            mcp_reason = context.get("mcp_reason") or context.get("reasoning")  # Prioritize mcp_reason
+            
             return ChatResponse(
                 response="🤔 **Legacy Workflow Approval Required**",
                 timestamp=datetime.now().isoformat(),
@@ -1200,7 +1222,10 @@ async def poll_for_next_message(workflow_id: str):
                     prompt_id=prompt_id,
                     question=prompt.get("question", "Approve action?"),
                     options=prompt.get("options", ["YES", "NO"]),
-                    context=prompt.get("context", {})
+                    context=context,
+                    mcp_tool=mcp_tool,
+                    mcp_query=mcp_query,
+                    mcp_reason=mcp_reason
                 )
             )
     
