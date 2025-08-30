@@ -10,7 +10,7 @@ from pathlib import Path
 from upsert_definitions import upsert_definitions
 from upsert_regulations import upsert_regulations
 from fetch_pdf import parse_and_clean, split_into_json_for_step2
-# from scripts.table_setup import setup_table
+from scripts.table_setup import setup_table
 from common_queries import Definitions, Regulations
 
 
