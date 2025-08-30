@@ -249,6 +249,13 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
             
             // Auto-analysis started successfully - legal chat will handle the rest
             console.log('✅ Legal chat session created:', result.workflow_id)
+            console.log('🔧 FORCE REFRESH: About to start polling...')
+            
+            // Start polling for HITL prompts and responses
+            if (result.workflow_id) {
+              setCurrentWorkflowId(result.workflow_id)
+              await pollForWorkflowMessages(result.workflow_id)
+            }
           } catch (error) {
             console.error('Failed to start auto-analysis:', error)
             const errorMessage: ChatMessage = {
@@ -465,9 +472,18 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
       
       const result = await response.json()
       
+      console.log('🔍 Session result:', { workflow_id: result.workflow_id, has_workflow_id: !!result.workflow_id })
+      
       if (result.workflow_id) {
         setCurrentWorkflowId(result.workflow_id)
-        await pollForWorkflowMessages(result.workflow_id)
+        console.log('📞 About to call pollForWorkflowMessages...')
+        try {
+          await pollForWorkflowMessages(result.workflow_id)
+        } catch (error) {
+          console.error('❌ Error in pollForWorkflowMessages:', error)
+        }
+      } else {
+        console.warn('⚠️ No workflow_id in result')
       }
     } catch (error) {
       console.error('Failed to start legal chat workflow:', error)
@@ -487,6 +503,8 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
 
 
   const pollForWorkflowMessages = async (workflowId: string) => {
+    console.log(`🚀 pollForWorkflowMessages called with workflowId: ${workflowId}`)
+    
     // Synchronous duplicate prevention - check and add atomically
     if (activePollingRef.current.has(workflowId)) {
       console.log(`🔄 Polling already active for workflow ${workflowId}, skipping duplicate`)
@@ -519,6 +537,7 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
           is_reasoning_complete: result.is_reasoning_complete,
           reasoning_steps: result.reasoning?.length,
           has_mcp_executions: !!result.mcp_executions,
+          has_hitl_prompt: !!result.hitl_prompt,
           mcp_executions_count: result.mcp_executions?.length || 0,
           response_preview: result.response?.substring(0, 100)
         })
@@ -559,6 +578,7 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
         
         // SECOND: Check if we got a HITL prompt (after processing MCP results)
         if (result.hitl_prompt) {
+          console.log('🎯 HITL prompt detected:', result.hitl_prompt)
           const hitlMessage: ChatMessage = {
             id: Date.now().toString(),
             type: 'hitl_prompt',
@@ -568,10 +588,17 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
             workflow_id: workflowId
           }
           
+          console.log('📝 Creating HITL message:', hitlMessage)
+          
           // Add HITL message with deduplication
           if (!messageIdsRef.current.has(hitlMessage.id)) {
             messageIdsRef.current.add(hitlMessage.id)
-            setChatMessages(prev => [...prev, hitlMessage])
+            setChatMessages(prev => {
+              console.log('💬 Adding HITL message to chat, total messages will be:', prev.length + 1)
+              return [...prev, hitlMessage]
+            })
+          } else {
+            console.log('⚠️ HITL message already exists, skipping')
           }
           // Stop polling - we'll restart after user responds
           isPolling = false
@@ -1057,17 +1084,18 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
                   
                   {/* HITL Prompt Inline Message */}
                   {message.type === 'hitl_prompt' && message.hitl_prompt && (
+                    console.log('🎨 Rendering HITL prompt message:', message.id, message.hitl_prompt),
                     <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 text-sm max-w-[280px]">
                       {/* MCP-specific approval prompt layout */}
-                      {message.hitl_prompt.mcp_tool ? (
+                      {(message.hitl_prompt.mcp_tool || message.hitl_prompt.context?.mcp_tool) ? (
                         <div>
                           <div className="text-orange-800 font-medium mb-2">
                             MCP Approval Required
                           </div>
                           <div className="space-y-1 text-xs text-orange-700 mb-3">
-                            <div><strong>Tool:</strong> {stripEmojis(message.hitl_prompt.mcp_tool)}</div>
-                            <div><strong>Query:</strong> {stripEmojis(message.hitl_prompt.mcp_query || 'N/A')}</div>
-                            <div><strong>Reason:</strong> {stripEmojis(message.hitl_prompt.mcp_reason || 'Processing request')}</div>
+                            <div><strong>Tool:</strong> {stripEmojis(message.hitl_prompt.mcp_tool || message.hitl_prompt.context?.mcp_tool || 'N/A')}</div>
+                            <div><strong>Query:</strong> {stripEmojis(message.hitl_prompt.mcp_query || message.hitl_prompt.context?.mcp_query || 'N/A')}</div>
+                            <div><strong>Reason:</strong> {stripEmojis(message.hitl_prompt.mcp_reason || message.hitl_prompt.context?.mcp_reason || 'Processing request')}</div>
                           </div>
                         </div>
                       ) : (
