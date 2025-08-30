@@ -1,29 +1,33 @@
 import sys
 print(sys.path)
 import asyncio
-
-import importlib.util
-import sys
 from pathlib import Path
+import json
 
 
-from upsert_definitions import upsert_definitions
-from upsert_regulations import upsert_regulations
-from fetch_pdf import parse_and_clean, split_into_json_for_step2
-from scripts.table_setup import setup_table
-from common_queries import Definitions, Regulations
+import sys
+import os
+# Add the project root directory to Python path
+sys.path.insert(0, r'C:\Users\xinti\OneDrive\Desktop\techjam-jamming')
+
+from postgres.src2.helpers.db.upsert_definitions import upsert_definitions
+from postgres.src2.helpers.db.upsert_regulations import upsert_regulations
+from postgres.src2.helpers.db.fetch_pdf import parse_and_clean, split_into_json_for_step2
+from postgres.scripts.table_setup import setup_table
+from postgres.src2.helpers.db.common_queries import Definitions, Regulations
 
 
 async def upsert_law(region: str, pdf_path: str, statute: str) -> None:
     definition, json_str2 = await parse_and_clean(pdf_path)
     setup_table(region)
-    for i in definition:
+    for term, meaning in definition.items():
         data = Definitions(
             file_location=pdf_path,
             region=region,
             statute=statute,
-            definitions=i
+            definitions=f"{term}: {meaning}"
         )
+        print(data)
         await upsert_definitions([data], region)
     
     regulation = await split_into_json_for_step2(json_str2)

@@ -3,7 +3,9 @@
     "allow": [
       "WebSearch",
       "Bash(python3:*)",
-      "Bash(uv run:*)"
+      "Bash(uv run:*)",
+      "Bash(python:*)",
+      "Bash(\"C:/Users/xinti/OneDrive/Desktop/techjam-jamming/viv/Scripts/python.exe\" \"postgres/src2/helpers/db/upsert_law_pdf.py\")"
     ],
     "deny": [],
     "ask": []

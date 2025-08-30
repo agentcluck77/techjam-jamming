@@ -4,21 +4,33 @@ from .common_queries import Regulations, CommonQueries
 import asyncpg
 from dotenv import load_dotenv
 
+# Load .env file
 load_dotenv()
 
 async def upsert_regulations(regulations: List[Regulations], region: str) -> None:
-    db_url = os.getenv("DATABASE_URL")
-    if not db_url:
-        raise ValueError("DATABASE_URL is not set in .env")
 
     if not regulations:
         return
 
-    pool = await asyncpg.create_pool(db_url)
+    # Read connection details from env
+    user = os.getenv("DB_USER", "postgres")
+    password = os.getenv("DB_PASSWORD", "postgres")
+    host = os.getenv("DB_HOST", "localhost")
+    port = int(os.getenv("DB_PORT", 5432))
+    database = os.getenv("DB_NAME", "postgres")
+
+    # Create asyncpg pool with explicit params
+    pool = await asyncpg.create_pool(
+        user=user,
+        password=password,
+        host=host,
+        port=port,
+        database=database
+    )
+
     queries = CommonQueries(pool)
 
     for regulation in regulations:
         await queries.upsert_regulations(regulation, region)
 
     await pool.close()
-

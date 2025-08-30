@@ -221,8 +221,9 @@ Here is your legal regulations text: {regulations_text}
     
     return regulations_list_cleaned
 
-def cleaner_llm (raw_text):
+async def cleaner_llm (raw_text):
     definitions, regulations_list = step1(raw_text)
     regulations_list_cleaned = step2(regulations_list)
-    print(f"{definitions}, {json.dumps(regulations_list_cleaned, indent=2)}")
+    regulations = json.dumps(regulations_list_cleaned, indent=2)
+    return definitions, regulations
 

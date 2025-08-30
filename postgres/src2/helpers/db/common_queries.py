@@ -1,11 +1,13 @@
 import logging
 from typing import List, Optional, Any, Dict, Union
 from datetime import datetime, timezone
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
 DbQueryResult = Dict[str, Any]
 
+@dataclass
 class Definitions:
     file_location: str
     region: Union[str, int]
@@ -37,11 +39,11 @@ class CommonQueries:
 
     async def upsert_definitions(self, data: Definitions, region) -> DbQueryResult:
         try:
-            query = """
+            query = f"""
             INSERT INTO techjam.t_law_{region}_definitions (
                 
             ) VALUES (
-                $1, $2, $3, $4, $5
+                $1, $2, $3, $4::jsonb, $5, $6
             )
             ON CONFLICT (id) DO UPDATE SET
                 file_location = EXCLUDED.file_location,
@@ -61,6 +63,7 @@ class CommonQueries:
                 data.created_at or datetime.now(timezone.utc),
                 data.updated_at or datetime.now(timezone.utc),
             ]
+            logger.debug(f"Query: {query}, Params: {params}")
             await self.db.execute(query, params)
             logger.debug(f"Upserted law definitions of region {region}")
             return {"success": True, "data": None}
@@ -70,16 +73,16 @@ class CommonQueries:
 
     async def upsert_regulations(self, data: Regulations, region) -> DbQueryResult:
         try:
-            query = """
+            query = f"""
             INSERT INTO techjam.t_law_{region}_regulations (
                 
             ) VALUES (
-                $1, $2, $3, $4, $5
+                $1, $2, $3, $4::json, $5, $6
             )
             ON CONFLICT (id) DO UPDATE SET
                 file_location = EXCLUDED.file_location,
                 statute = EXCLUDED.statute,
-                region = EXCLUDED.region,
+                law_id = EXCLUDED.law_id,
                 regulations = EXCLUDED.regulations,
                 created_at = EXCLUDED.created_at,
                 updated_at = EXCLUDED.updated_at
@@ -94,6 +97,7 @@ class CommonQueries:
                 data.created_at or datetime.now(timezone.utc),
                 data.updated_at or datetime.now(timezone.utc),
             ]
+            logger.debug(f"Query: {query}, Params: {params}")
             await self.db.execute(query, params)
             logger.debug(f"Upserted law regulations of region {region}")
             return {"success": True, "data": None}

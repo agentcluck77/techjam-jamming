@@ -1,5 +1,10 @@
-from src2.helpers.db.pdf_parser import parse_pdf
-from src2.helpers.laws.llm_service import cleaner_llm
+import sys
+import os
+# Add the project root directory to Python path
+sys.path.insert(0, r'C:\Users\xinti\OneDrive\Desktop\techjam-jamming')
+
+from postgres.src2.helpers.db.pdf_parser import parse_pdf
+from postgres.src2.helpers.laws.llm_service import cleaner_llm
 import json
 
 async def parse_and_clean(pdf_path: str) -> str:
@@ -18,7 +23,3 @@ async def split_into_json_for_step2(json_str: str):
         regulations.append({"law_id": law_id, "regulation": details})
     
     return [regulations]
-
-if __name__ == "__main__":
-    parse_and_clean()
-    split_into_json_for_step2()
