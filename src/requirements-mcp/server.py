@@ -69,7 +69,9 @@ except Exception as e:
 
 # Initialize ChromaDB client with persistence
 try:
-    client = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
+    # Use persistent client instead of HTTP client for local development
+    client = chromadb.PersistentClient(path="./data/chromadb")
+    logger.info("ChromaDB persistent client initialized successfully")
 except Exception as e:
     logger.warning(f"Failed to initialize ChromaDB client: {e}")
     client = None
@@ -670,6 +672,70 @@ async def upload_document(
         except:
             pass
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@app.get("/api/v1/status/{document_id}")
+async def get_document_status(document_id: str):
+    """Get processing status for a specific document"""
+    try:
+        logger.info(f"Status check requested for document: {document_id}")
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT id, filename, processing_status, upload_date, processing_details
+            FROM pdfs 
+            WHERE id = %s
+        """, (document_id,))
+        
+        result = cursor.fetchone()
+        logger.info(f"Database query result: {result}")
+        if not result:
+            logger.warning(f"Document not found: {document_id}")
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        doc_id, filename, status, upload_date, details = result
+        
+        # Calculate processing time
+        processing_time = (datetime.now() - upload_date).total_seconds()
+        
+        # Get chunk count if completed
+        chunk_count = 0
+        if status == 'completed':
+            cursor.execute("SELECT COUNT(*) FROM processing_log WHERE pdf_id = %s", (doc_id,))
+            chunk_count = cursor.fetchone()[0]
+        
+        cursor.close()
+        conn.close()
+        
+        # Determine progress based on status and time
+        if status == 'completed':
+            progress = 100
+            estimated_completion = 0
+        elif status == 'processing':
+            # Rough progress estimation based on time (most docs process in 30-60s)
+            progress = min(95, int((processing_time / 60) * 80))  # Max 95% until actually done
+            estimated_completion = max(0, 60 - processing_time)
+        else:  # failed
+            progress = 0
+            estimated_completion = 0
+        
+        return {
+            "document_id": document_id,
+            "filename": filename,
+            "status": status,
+            "progress_percentage": progress,
+            "chunk_count": chunk_count,
+            "processing_time_seconds": processing_time,
+            "estimated_completion_seconds": estimated_completion,
+            "upload_date": upload_date.isoformat(),
+            "processing_details": details
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get document status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get document status: {str(e)}")
 
 @app.get("/api/v1/documents")
 async def list_documents():

@@ -47,6 +47,13 @@ class RealMCPClient:
                 "port": 8011,
                 "tool_name": "search_requirements",
                 "search_types": ["semantic", "metadata", "bulk_retrieve"]
+            },
+            {
+                "name": "check_requirements_document_status",
+                "description": "Check processing status of a requirements document",
+                "mcp_server": "requirements-mcp", 
+                "port": 8011,
+                "tool_name": "check_document_status"
             }
         ]
     
@@ -162,6 +169,26 @@ class RealMCPClient:
                 }
             else:
                 return {"error": "Invalid search_type for requirements"}
+        
+        elif tool_name == "check_document_status":
+            document_id = arguments.get("document_id")
+            if not document_id:
+                return {"error": "document_id is required for status check"}
+            
+            # Call the requirements MCP status endpoint directly via HTTP
+            import aiohttp
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"{self.requirements_mcp_url}/api/v1/status/{document_id}") as response:
+                        if response.status == 200:
+                            return await response.json()
+                        elif response.status == 404:
+                            return {"error": "Document not found", "status": "not_found"}
+                        else:
+                            return {"error": f"Status check failed: HTTP {response.status}"}
+            except Exception as e:
+                logger.error(f"Status check failed for {document_id}: {e}")
+                return {"error": f"Status check failed: {str(e)}"}
         
         return {"error": f"Unknown requirements MCP tool: {tool_name}"}
     

@@ -25,6 +25,37 @@ class LawyerAgent:
         # If mcp_client is None, create real MCP client
         self.mcp_client = mcp_client if mcp_client is not None else RealMCPClient()
         self.max_llm_retries = 3  # Maximum retries for LLM parsing
+        
+        # Compatibility properties for endpoints that expect separate MCPs
+        # These proxy to the unified mcp_client
+        self._legal_mcp = None
+        self._requirements_mcp = None
+    
+    @property
+    def legal_mcp(self):
+        """Compatibility property for endpoints expecting separate legal_mcp"""
+        if self._legal_mcp is None:
+            # Create a proxy object that forwards calls to mcp_client
+            self._legal_mcp = LegalMCPProxy(self.mcp_client)
+        return self._legal_mcp
+    
+    @legal_mcp.setter
+    def legal_mcp(self, value):
+        """Allow endpoints to set legal_mcp (for HITL wrapper)"""
+        self._legal_mcp = value
+    
+    @property
+    def requirements_mcp(self):
+        """Compatibility property for endpoints expecting separate requirements_mcp"""
+        if self._requirements_mcp is None:
+            # Create a proxy object that forwards calls to mcp_client
+            self._requirements_mcp = RequirementsMCPProxy(self.mcp_client)
+        return self._requirements_mcp
+    
+    @requirements_mcp.setter
+    def requirements_mcp(self, value):
+        """Allow endpoints to set requirements_mcp (for HITL wrapper)"""
+        self._requirements_mcp = value
     
     async def process_request(self, request_data: Dict[str, Any], request_type: str):
         """Route to appropriate processing method based on request type"""
@@ -1274,3 +1305,49 @@ Return ONLY: true or false"""
 #         # 3. Advanced risk calculation algorithms
 #         # 4. Legal precedent consideration
 #         pass
+
+
+class LegalMCPProxy:
+    """Proxy class to make LawyerAgent.mcp_client look like a separate legal_mcp"""
+    
+    def __init__(self, mcp_client):
+        self.mcp_client = mcp_client
+    
+    async def search_documents(self, search_type, query=None, document_content=None, **kwargs):
+        """Proxy legal document search to mcp_client"""
+        return await self.mcp_client.call_tool("search_legal_documents", {
+            "search_type": search_type,
+            "query": query,
+            "document_content": document_content,
+            **kwargs
+        })
+    
+    async def delete_document(self, document_id, **kwargs):
+        """Proxy legal document deletion to mcp_client"""
+        return await self.mcp_client.call_tool("delete_legal_document", {
+            "document_id": document_id,
+            **kwargs
+        })
+
+
+class RequirementsMCPProxy:
+    """Proxy class to make LawyerAgent.mcp_client look like a separate requirements_mcp"""
+    
+    def __init__(self, mcp_client):
+        self.mcp_client = mcp_client
+    
+    async def search_requirements(self, search_type, query=None, document_id=None, **kwargs):
+        """Proxy requirements search to mcp_client"""
+        return await self.mcp_client.call_tool("search_requirements", {
+            "search_type": search_type,
+            "query": query,
+            "document_id": document_id,
+            **kwargs
+        })
+    
+    async def check_document_status(self, document_id, **kwargs):
+        """Proxy document status check to mcp_client"""
+        return await self.mcp_client.call_tool("check_requirements_document_status", {
+            "document_id": document_id,
+            **kwargs
+        })

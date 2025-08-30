@@ -80,7 +80,7 @@ function MarkdownContent({ content, className = '' }: { content: string, classNa
   const cleanContent = stripEmojis(content)
   
   return (
-    <div className={cn("markdown-content", className)}>
+    <div className={cn("markdown-content break-words", className)}>
       <ReactMarkdown 
         remarkPlugins={[remarkGfm]}
         components={{
@@ -91,19 +91,13 @@ function MarkdownContent({ content, className = '' }: { content: string, classNa
           h4: ({ children }) => <h4 className="text-xs font-semibold mb-0.5 mt-0 leading-tight">{children}</h4>,
           h5: ({ children }) => <h5 className="text-xs font-medium mb-0.5 mt-0 leading-tight">{children}</h5>,
           h6: ({ children }) => <h6 className="text-xs font-medium mb-0.5 mt-0 leading-tight">{children}</h6>,
-          p: ({ children }) => <p className="mb-1 last:mb-0 leading-relaxed">{children}</p>,
-          ul: ({ children }) => <ul className="list-disc list-inside mb-1 space-y-0.5 pl-2">{children}</ul>,
-          ol: ({ children }) => <ol className="list-decimal list-inside mb-1 space-y-0.5 pl-2">{children}</ol>,
-          li: ({ children }) => <li className="text-sm leading-relaxed mb-0.5">{children}</li>,
+          p: ({ children }) => <p className="mb-1 last:mb-0 leading-relaxed break-words">{children}</p>,
+          ul: ({ children }) => <ul className="list-disc list-inside mb-1 space-y-0.5 pl-2 break-words">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal list-inside mb-1 space-y-0.5 pl-2 break-words">{children}</ol>,
+          li: ({ children }) => <li className="text-sm leading-relaxed mb-0.5 break-words">{children}</li>,
           code: ({ children, className }) => {
-            const isInline = !className?.includes('language-')
-            return isInline ? (
-              <code className="bg-black bg-opacity-10 px-1 py-0.5 rounded text-xs font-mono border">{children}</code>
-            ) : (
-              <pre className="bg-gray-800 text-green-400 p-2 rounded text-xs overflow-x-auto mt-1 mb-1">
-                <code>{children}</code>
-              </pre>
-            )
+            // Disable code block rendering - just return plain text
+            return <span className="font-mono text-sm break-words">{children}</span>
           },
           blockquote: ({ children }) => (
             <blockquote className="border-l-2 border-gray-400 pl-2 italic opacity-80 my-1">
@@ -119,11 +113,11 @@ function MarkdownContent({ content, className = '' }: { content: string, classNa
           ),
           table: ({ children }) => (
             <div className="overflow-x-auto my-3 rounded-lg border border-gray-200 shadow-sm bg-white">
-              <table className="min-w-full text-xs border-collapse">{children}</table>
+              <table className="min-w-full text-xs border-collapse bg-white">{children}</table>
             </div>
           ),
           thead: ({ children }) => <thead className="bg-gray-50 border-b-2 border-gray-200">{children}</thead>,
-          tbody: ({ children }) => <tbody className="bg-white">{children}</tbody>,
+          tbody: ({ children }) => <tbody className="bg-white divide-y divide-gray-100">{children}</tbody>,
           tr: ({ children }) => <tr className="border-b border-gray-100 hover:bg-gray-50/50">{children}</tr>,
           th: ({ children }) => (
             <th className="px-4 py-3 font-semibold text-left text-gray-900 text-xs uppercase tracking-wide">
@@ -1095,7 +1089,12 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
                   <div className="w-7 h-7 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                     <Bot className="w-4 h-4 text-blue-600" />
                   </div>
-                  <div className="bg-gray-100 rounded-lg rounded-bl-sm px-3 py-2 text-sm text-gray-700 max-w-[220px]">
+                  <div 
+                    className="bg-gray-100 rounded-lg rounded-bl-sm px-3 py-2 text-sm text-gray-700 break-words"
+                    style={{ 
+                      maxWidth: `${Math.max(280, sidebarWidth - 100)}px` 
+                    }}
+                  >
                     <MarkdownContent content="Hi! I'm ready to help with compliance questions. What would you like to know?" className="text-gray-700" />
                   </div>
                 </div>
@@ -1138,7 +1137,7 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
                         {message.content && message.content.trim() && (
                           <div
                             className={cn(
-                              "rounded-lg px-3 py-2 text-sm max-w-[220px]",
+                              "rounded-lg px-3 py-2 text-sm break-words overflow-wrap-anywhere",
                               message.type === 'user'
                                 ? 'bg-blue-600 text-white rounded-br-sm'
                                 : message.type === 'mcp_call'
@@ -1147,6 +1146,9 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
                                 ? 'bg-green-50 text-green-900 border border-green-200 rounded-bl-sm'
                                 : 'bg-gray-100 text-gray-900 rounded-bl-sm'
                             )}
+                            style={{ 
+                              maxWidth: `${Math.max(280, sidebarWidth - 100)}px` 
+                            }}
                           >
                             <MarkdownContent 
                               content={message.content} 
@@ -1186,7 +1188,12 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
                   {/* HITL Prompt Inline Message */}
                   {message.type === 'hitl_prompt' && message.hitl_prompt && (
                     console.log('🎨 Rendering HITL prompt message:', message.id, message.hitl_prompt),
-                    <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 text-sm max-w-[280px]">
+                    <div 
+                      className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 text-sm break-words"
+                      style={{ 
+                        maxWidth: `${Math.max(320, sidebarWidth - 80)}px` 
+                      }}
+                    >
                       {/* MCP-specific approval prompt layout */}
                       {(message.hitl_prompt.mcp_tool || message.hitl_prompt.context?.mcp_tool) ? (
                         <div>

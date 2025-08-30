@@ -13,7 +13,7 @@ import uuid
 import json
 import asyncio
 
-from ...core.agents.lawyer_trd_agent import LawyerTRDAgent
+from ...core.agents.lawyer_agent import LawyerAgent
 from ...core.llm_service import llm_client
 from ...core.models import ChatMessage as PersistentChatMessage
 from ...services.chat_storage import chat_storage
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api", tags=["legal-chat"])
 logger = logging.getLogger(__name__)
 
 # Initialize the lawyer agent for MCP calls
-lawyer_agent = LawyerTRDAgent()
+lawyer_agent = LawyerAgent()
 
 # Agent state management
 agent_sessions = {}
@@ -405,10 +405,18 @@ async def _run_autonomous_agent(session_id: str, user_message: str, context: Opt
                 
                 # Execute the action
                 if next_action.action_type == "mcp_call":
-                    # MCP calls require HITL approval - send HITL prompt first
-                    await _agent_send_mcp_approval_prompt(session_id, next_action)
-                    agent_state.status = "waiting_hitl"
-                    break  # Wait for user approval
+                    # Check MCP limit before proceeding
+                    if agent_state.mcp_sent_count >= 5:
+                        logger.info(f"⚠️ MCP limit reached ({agent_state.mcp_sent_count}/5), forcing analysis instead")
+                        # Force the agent to do analysis with available information
+                        next_action.action_type = "analysis"
+                        next_action.details = {"description": "MCP limit reached, analyzing with available information"}
+                        await _agent_perform_analysis(session_id, next_action)
+                    else:
+                        # MCP calls require HITL approval - send HITL prompt first
+                        await _agent_send_mcp_approval_prompt(session_id, next_action)
+                        agent_state.status = "waiting_hitl"
+                        break  # Wait for user approval
                 elif next_action.action_type == "analysis":
                     await _agent_perform_analysis(session_id, next_action)
                     # Yield control aggressively to allow frontend polling between reasoning steps  
@@ -491,14 +499,17 @@ Previous Tool Results:
 STATE ANALYSIS:
 - Analysis decisions made: {analysis_count}
 - Tool calls made: {len(agent_state.tool_results)}
+- MCP calls made: {agent_state.mcp_sent_count} (limit: 5 per session)
 - Current iteration: Look at your previous reasoning steps above
 
 === AUTONOMOUS AGENT FRAMEWORK ===
 
 AVAILABLE ACTIONS:
 1. "mcp_call" - Access external legal databases (requires human approval for security)
-   - legal_mcp.search_documents: Search legal regulations, statutes, case law
+   - legal_mcp.search_documents: Search legal regulations, statutes, case law  
    - requirements_mcp.search_requirements: Search technical requirements, standards
+   - requirements_mcp.check_document_status: Check if newly uploaded documents are ready for search
+   - NOTE: Limited to {5 - agent_state.mcp_sent_count} more MCP calls this session
 2. "analysis" - Perform deep reasoning/analysis on available information
 3. "response" - Provide final answer to user (when sufficient information gathered)
 4. "hitl_prompt" - Request human input (rare - only for clarifications)
@@ -517,6 +528,18 @@ INTELLIGENT DECISION-MAKING:
 - Complex compliance analysis: May need 1-3 analysis steps + external data
 - Multi-jurisdictional queries: Often require MCP calls for specific regulations
 - Precedent/case law questions: Usually need legal database access
+
+MCP EFFICIENCY RULES:
+- If an MCP search returns no results, try ONE different search strategy max
+- Don't make multiple similar MCP calls - vary search terms or approach significantly
+- If document ID searches fail, try semantic searches with different keywords
+- After 2 failed MCP attempts, proceed with analysis based on available information
+
+DOCUMENT PROCESSING RULES:
+- For newly uploaded documents (uploaded <5 minutes ago), check processing status first
+- If status is "processing", inform user "Generating embeddings..." and wait
+- Only search documents with status "completed"
+- For document_id searches that fail, the document may still be processing
 
 EFFICIENCY OPTIMIZATION:
 - Avoid repetitive analysis - build on previous work
@@ -1108,10 +1131,18 @@ async def _resume_autonomous_agent_locked(session_id: str, original_message: str
                 
                 # Execute the action
                 if next_action.action_type == "mcp_call":
-                    # MCP calls require HITL approval - send HITL prompt first
-                    await _agent_send_mcp_approval_prompt(session_id, next_action)
-                    agent_state.status = "waiting_hitl"
-                    break  # Wait for user approval
+                    # Check MCP limit before proceeding
+                    if agent_state.mcp_sent_count >= 5:
+                        logger.info(f"⚠️ MCP limit reached ({agent_state.mcp_sent_count}/5) in resume, forcing analysis instead")
+                        # Force the agent to do analysis with available information
+                        next_action.action_type = "analysis"
+                        next_action.details = {"description": "MCP limit reached during resume, analyzing with available information"}
+                        await _agent_perform_analysis(session_id, next_action)
+                    else:
+                        # MCP calls require HITL approval - send HITL prompt first
+                        await _agent_send_mcp_approval_prompt(session_id, next_action)
+                        agent_state.status = "waiting_hitl"
+                        break  # Wait for user approval
                 elif next_action.action_type == "analysis":
                     await _agent_perform_analysis(session_id, next_action)
                     # Yield control aggressively to allow frontend polling between reasoning steps  

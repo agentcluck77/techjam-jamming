@@ -13,7 +13,7 @@ from pydantic import BaseModel
 import json
 
 # Import the real lawyer agent for actual workflow execution
-from ...core.agents.lawyer_trd_agent import LawyerTRDAgent
+from ...core.agents.lawyer_agent import LawyerAgent
 
 class HITLEnabledMCP:
     """Wrapper around MCP that asks for HITL approval before each call"""
@@ -322,7 +322,7 @@ async def execute_lawyer_workflow(workflow_id: str):
         await update_progress(workflow_id, "Analyzing request for MCP requirements...", 2, 4, 50)
         
         # Step 2: Create lawyer agent with HITL-enabled MCPs
-        lawyer_agent = LawyerTRDAgent()
+        lawyer_agent = LawyerAgent()
         
         # Replace the original MCPs with HITL-enabled wrappers
         lawyer_agent.legal_mcp = HITLEnabledMCP(
