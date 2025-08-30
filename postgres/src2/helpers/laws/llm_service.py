@@ -141,13 +141,13 @@ def clean_json_output(text: str) -> str:
     return text.strip()
 
 # --- Step 1: Extract Definitions and Regulations ---
-def step1_system_prompt(raw_text): 
+def step1(raw_text): 
     structure = """{
     "definitions": { "TERM1": "Definition text", "TERM2": "Definition text", ... },
     "regulations": "All the regulations text concatenated as a single string"
   }"""
     
-    return f"""
+    prompt = f"""
 You are a legal document parser.
 You will be given a raw law or regulation document that may contain headers, metadata, citations, commentary, and formatting.  
 Your task is to read a legal document text and extract only:
@@ -166,35 +166,29 @@ Rules:
 - Do not include any explanations or extra text outside the JSON.
 
 This your raw legal text: {raw_text}"""
-
-
-# Combine system prompt and user text into a single string
-#input_text_step1 = 
-
-
-# Generate Step 1 output
-step1_response = client.models.generate_content(
+    
+    step1_response = client.models.generate_content(
     model="gemini-1.5-flash",
-    contents=step1_system_prompt(raw_text)  # <-- pass a single string, not a list of dicts
+    contents=prompt  # <-- pass a single string, not a list of dicts
 )
+    step1_text_clean = clean_json_output(step1_response.text)
+
+    try:
+        step1_json = json.loads(step1_text_clean)
+        definitions = step1_json.get("definitions", {})
+        regulations_text = step1_json.get("regulations", "")
+
+    except json.JSONDecodeError:
+        raise ValueError(f"Failed to parse JSON from Step 1:\n{step1_text_clean}")
+    
+    return definitions, regulations_text
 
 # Clean and parse JSON
-step1_text_clean = clean_json_output(step1_response.text)
-
-try:
-    step1_json = json.loads(step1_text_clean)
-    definitions = step1_json.get("definitions", {})
-    regulations_text = step1_json.get("regulations", "")
-
-    # print("Step 1 output:")
-    #print(json.dumps(step1_json, indent=2))
-except json.JSONDecodeError:
-    raise ValueError(f"Failed to parse JSON from Step 1:\n{step1_text_clean}")
 
 
 # --- Step 2: Chunk Regulations by Section/Article ---
-def step2_system_prompt ():
-    return f"""
+def step2(regulations_text):
+    prompt = f"""
 You are a legal text parser. Your task is to read the legal regulations text and split it into individual sections or articles.
 
 Rules:
@@ -211,23 +205,24 @@ Rules:
 
 Here is your legal regulations text: {regulations_text}
 """
-step2_system_prompt()
+    # Generate Step 2 output
+    step2_response = client.models.generate_content(
+        model="gemini-1.5-flash",
+        contents = prompt  # <-- single string
+    )
 
-# Generate Step 2 output
-step2_response = client.models.generate_content(
-    model="gemini-1.5-flash",
-    contents=step2_system_prompt()  # <-- single string
-)
+    # Clean and parse JSON
+    step2_text_clean = clean_json_output(step2_response.text)
 
-# Clean and parse JSON
-step2_text_clean = clean_json_output(step2_response.text)
+    try:
+        regulations_list_cleaned = json.loads(step2_text_clean)
+    except json.JSONDecodeError:
+        raise ValueError(f"Failed to parse JSON from Step 2:\n{step2_text_clean}")
+    
+    return regulations_list_cleaned
 
-try:
-    regulations_list = json.loads(step2_text_clean)
-    #print("\nStep 2 output:")
-    #print(json.dumps(regulations_list, indent=2))
-except json.JSONDecodeError:
-    raise ValueError(f"Failed to parse JSON from Step 2:\n{step2_text_clean}")
+def cleaner_llm (raw_text):
+    definitions, regulations_list = step1(raw_text)
+    regulations_list_cleaned = step2(regulations_list)
+    print(f"{definitions}, {json.dumps(regulations_list_cleaned, indent=2)}")
 
-def cleaner_llm ():
-    return definitions, json.dumps(regulations_list, indent=2)
