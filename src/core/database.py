@@ -178,12 +178,16 @@ class DatabaseManager:
     def _initialize_database(self):
         """Initialize database connection and create tables"""
         try:
-            # Create database engine
+            # Create database engine with larger pool
             self.engine = create_engine(
                 settings.database_url,
                 echo=True if settings.environment == "development" else False,
-                pool_size=5,
-                max_overflow=10
+                pool_size=20,  # Increased from 5
+                max_overflow=30,  # Increased from 10
+                pool_timeout=30,  # Wait 30 seconds for connection
+                pool_recycle=3600,  # Recycle connections every hour
+                pool_pre_ping=True,  # Verify connections before use
+                echo_pool=True if settings.environment == "development" else False
             )
             
             # Create session factory
@@ -211,15 +215,36 @@ class DatabaseManager:
     
     async def health_check(self) -> bool:
         """Check database connectivity"""
+        db = None
         try:
             db = self.SessionLocal()
             # Simple health check query
             db.execute("SELECT 1")
-            db.close()
             return True
         except Exception as e:
             logger.error(f"Database health check failed: {e}")
             return False
+        finally:
+            if db:
+                db.close()
+
+    def get_session_context(self):
+        """Context manager for database sessions"""
+        from contextlib import contextmanager
+        
+        @contextmanager
+        def session_scope():
+            db = self.SessionLocal()
+            try:
+                yield db
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+            finally:
+                db.close()
+        
+        return session_scope()
 
 # Global database manager instance
 db_manager = DatabaseManager()

@@ -3,7 +3,7 @@ import logging
 import os
 import asyncpg
 from dotenv import load_dotenv
-from postgres.src2.helpers.db.common_queries import CommonQueries, DbQueryResult
+from helpers.db.common_queries import CommonQueries, DbQueryResult
 logger = logging.getLogger(__name__)
 load_dotenv()
 

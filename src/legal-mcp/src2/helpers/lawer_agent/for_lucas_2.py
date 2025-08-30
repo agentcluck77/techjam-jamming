@@ -7,7 +7,7 @@ load_dotenv()
 root_path = os.getenv("ROOT_PATH")
 
 sys.path.insert(0, root_path)
-from postgres.src2.helpers.lawer_agent.get_definition import get_definition
+from helpers.lawer_agent.get_definition import get_definition
 
 
 async def definitions(region: str, statute: str):

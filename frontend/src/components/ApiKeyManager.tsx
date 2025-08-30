@@ -1,0 +1,247 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Eye, EyeOff, Key, Settings } from 'lucide-react'
+import { toast } from 'sonner'
+
+export type ApiKeyType = 'anthropic' | 'openai' | 'google'
+
+interface ApiKeys {
+  anthropic?: string
+  openai?: string  
+  google?: string
+}
+
+interface ApiKeyManagerProps {
+  onApiKeysChange: (apiKeys: ApiKeys) => void
+  className?: string
+}
+
+export default function ApiKeyManager({ onApiKeysChange, className = '' }: ApiKeyManagerProps) {
+  const [apiKeys, setApiKeys] = useState<ApiKeys>({})
+  const [showKeys, setShowKeys] = useState<Record<ApiKeyType, boolean>>({
+    anthropic: false,
+    openai: false,
+    google: false
+  })
+  const [isOpen, setIsOpen] = useState(false)
+
+  // Load API keys from localStorage on mount
+  useEffect(() => {
+    const savedKeys = {
+      anthropic: localStorage.getItem('anthropic_api_key') || '',
+      openai: localStorage.getItem('openai_api_key') || '',
+      google: localStorage.getItem('google_api_key') || ''
+    }
+    setApiKeys(savedKeys)
+    onApiKeysChange(savedKeys)
+  }, [onApiKeysChange])
+
+  const handleKeyChange = (keyType: ApiKeyType, value: string) => {
+    const updatedKeys = { ...apiKeys, [keyType]: value }
+    setApiKeys(updatedKeys)
+    
+    // Save to localStorage
+    if (value) {
+      localStorage.setItem(`${keyType}_api_key`, value)
+    } else {
+      localStorage.removeItem(`${keyType}_api_key`)
+    }
+    
+    onApiKeysChange(updatedKeys)
+  }
+
+  const toggleShowKey = (keyType: ApiKeyType) => {
+    setShowKeys(prev => ({ ...prev, [keyType]: !prev[keyType] }))
+  }
+
+  const clearKey = (keyType: ApiKeyType) => {
+    handleKeyChange(keyType, '')
+    toast.success(`${keyType} API key cleared`)
+  }
+
+  const hasAnyKeys = Object.values(apiKeys).some(key => key && key.length > 0)
+
+  if (!isOpen) {
+    return (
+      <div className={`flex items-center gap-2 ${className}`}>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => setIsOpen(true)}
+          className={hasAnyKeys ? "border-green-500" : "border-orange-500"}
+        >
+          <Key className="h-4 w-4 mr-2" />
+          {hasAnyKeys ? "API Keys Set" : "Set API Keys"}
+        </Button>
+        {!hasAnyKeys && (
+          <span className="text-sm text-muted-foreground">
+            Required for AI analysis
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <Card className={className}>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Key className="h-5 w-5" />
+            API Key Configuration
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsOpen(false)}
+          >
+            Close
+          </Button>
+        </CardTitle>
+        <CardDescription>
+          Enter your AI provider API keys. Keys are stored locally in your browser and sent securely to the backend.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Tabs defaultValue="anthropic" className="w-full">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="anthropic">
+              <span className="flex items-center gap-2">
+                Anthropic
+                {apiKeys.anthropic && (
+                  <div className="h-2 w-2 rounded-full bg-green-500" />
+                )}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="openai">
+              <span className="flex items-center gap-2">
+                OpenAI
+                {apiKeys.openai && (
+                  <div className="h-2 w-2 rounded-full bg-green-500" />
+                )}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="google">
+              <span className="flex items-center gap-2">
+                Google
+                {apiKeys.google && (
+                  <div className="h-2 w-2 rounded-full bg-green-500" />
+                )}
+              </span>
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="anthropic" className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="anthropic-key">Anthropic API Key</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="anthropic-key"
+                  type={showKeys.anthropic ? "text" : "password"}
+                  placeholder="sk-ant-api03-..."
+                  value={apiKeys.anthropic || ''}
+                  onChange={(e) => handleKeyChange('anthropic', e.target.value)}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => toggleShowKey('anthropic')}
+                >
+                  {showKeys.anthropic ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => clearKey('anthropic')}
+                >
+                  Clear
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Get your key from <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" className="underline">console.anthropic.com</a>
+              </p>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="openai" className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="openai-key">OpenAI API Key</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="openai-key"
+                  type={showKeys.openai ? "text" : "password"}
+                  placeholder="sk-..."
+                  value={apiKeys.openai || ''}
+                  onChange={(e) => handleKeyChange('openai', e.target.value)}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => toggleShowKey('openai')}
+                >
+                  {showKeys.openai ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => clearKey('openai')}
+                >
+                  Clear
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Get your key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline">platform.openai.com</a>
+              </p>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="google" className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="google-key">Google AI API Key</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="google-key"
+                  type={showKeys.google ? "text" : "password"}
+                  placeholder="AIza..."
+                  value={apiKeys.google || ''}
+                  onChange={(e) => handleKeyChange('google', e.target.value)}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => toggleShowKey('google')}
+                >
+                  {showKeys.google ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => clearKey('google')}
+                >
+                  Clear
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Get your key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline">aistudio.google.com</a>
+              </p>
+            </div>
+          </TabsContent>
+        </Tabs>
+
+        {!hasAnyKeys && (
+          <div className="mt-4 p-3 border border-orange-200 rounded-md bg-orange-50">
+            <p className="text-sm text-orange-800">
+              At least one API key is required for AI analysis. The system will try providers in order of availability.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}

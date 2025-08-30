@@ -15,6 +15,7 @@ import { ChatList } from './ChatList'
 import { MentionTextarea } from './MentionTextarea'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { toast } from 'sonner'
 
 interface HITLPrompt {
   prompt_id: string
@@ -295,6 +296,60 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
         const triggerAutoChat = async () => {
           console.log('🚀 triggerAutoChat starting...')
           
+          // Extract document ID from prompt
+          const documentIdMatch = autoAnalysisPrompt.match(/ID: ([a-f0-9\-]+)/i)
+          const documentId = documentIdMatch ? documentIdMatch[1] : null
+          
+          if (documentId) {
+            console.log(`📄 Found document ID: ${documentId}`)
+            
+            // Show embedding generation toast
+            const embeddingToast = toast.loading('🔄 Generating embeddings for your document...', {
+              description: 'Processing PDF and creating searchable content...',
+            })
+            
+            // Wait for embeddings to complete
+            let attempts = 0
+            const maxAttempts = 60 // 2 minutes max
+            
+            while (attempts < maxAttempts) {
+              try {
+                const statusResponse = await fetch(`http://localhost:8011/api/v1/status/${documentId}`)
+                if (statusResponse.ok) {
+                  const status = await statusResponse.json()
+                  console.log(`📊 Document status: ${status.status} (${status.progress_percentage}%)`)
+                  
+                  if (status.status === 'completed') {
+                    toast.dismiss(embeddingToast)
+                    toast.success('✅ Embeddings generated successfully!')
+                    break
+                  }
+                  
+                  // Update toast with progress
+                  toast.loading('🔄 Generating embeddings for your document...', {
+                    description: `Processing PDF... ${status.progress_percentage || 0}% complete`,
+                    id: embeddingToast
+                  })
+                } else {
+                  console.log(`❌ Status check failed: ${statusResponse.status}`)
+                }
+              } catch (error) {
+                console.error('Error checking document status:', error)
+              }
+              
+              attempts++
+              await new Promise(resolve => setTimeout(resolve, 2000)) // Wait 2 seconds
+            }
+            
+            if (attempts >= maxAttempts) {
+              toast.dismiss(embeddingToast)
+              toast.error('⚠️ Embedding generation timed out. Proceeding with analysis...')
+            }
+          }
+          
+          // NOW start the agent
+          console.log('🤖 Starting agent analysis...')
+          
           // Ensure sidebar is in main chat view (not chat list)
           setShowChatList(false)
           setSelectedChat(null) // Start fresh chat
@@ -307,7 +362,18 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
             content: autoAnalysisPrompt,
             timestamp: new Date(),
           }
-          setChatMessages([userMessage]) // Replace any existing messages
+          
+          const initialAssistantMessage: ChatMessage = {
+            id: (Date.now() + 1).toString(),
+            type: 'assistant',
+            content: '⏳ Starting analysis...',
+            timestamp: new Date(),
+            reasoning: [],
+            reasoning_duration: 0,
+            is_reasoning_complete: false
+          }
+          
+          setChatMessages([userMessage, initialAssistantMessage]) // Create both user and assistant messages
           
           try {
             const response = await fetch(`${API_BASE_URL}/api/legal-chat/session`, {
@@ -330,8 +396,12 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
             console.log('✅ Legal chat session created:', result.workflow_id)
             console.log('🔧 FORCE REFRESH: About to start polling...')
             
-            // Start polling for HITL prompts and responses
+            // Update the assistant message with workflow_id so polling can find it
             if (result.workflow_id) {
+              setChatMessages(prev => prev.map(msg => 
+                msg.type === 'assistant' ? { ...msg, workflow_id: result.workflow_id } : msg
+              ))
+              
               setCurrentWorkflowId(result.workflow_id)
               await pollForWorkflowMessages(result.workflow_id)
             }
@@ -351,7 +421,7 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
         }
         
         // Trigger the analysis immediately
-        setTimeout(triggerAutoChat, 200)
+        triggerAutoChat()
       }
     }
     
@@ -601,7 +671,7 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
     
     while (isPolling && pollCount < maxPolls) {
       try {
-        await new Promise(resolve => setTimeout(resolve, 1000)) // Poll every 1000ms for stability
+        await new Promise(resolve => setTimeout(resolve, 100)) // Poll every 100ms for faster MCP response
         
         const response = await fetch(`${API_BASE_URL}/api/legal-chat/poll/${workflowId}`)
         
@@ -632,16 +702,16 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
         if (result.mcp_executions && result.mcp_executions.length > 0) {
           console.log('🔍 Adding MCP messages:', result.mcp_executions)
           
-          // Clear awaiting_mcp_result flag from any approved messages
-          setChatMessages(prev => prev.map(msg => 
-            msg.awaiting_mcp_result ? { ...msg, awaiting_mcp_result: false } : msg
+          // Remove processing messages when actual MCP results arrive
+          setChatMessages(prev => prev.filter(msg => 
+            !(msg.mcp_approved && msg.awaiting_mcp_result)
           ))
           
           result.mcp_executions.forEach((mcpExec: any) => {
             const mcpMessage: ChatMessage = {
               id: `mcp-${Date.now()}-${Math.random()}`,
               type: 'mcp_call',
-              content: `🔍 **${mcpExec.tool.replace('_', ' ').toUpperCase()}**\n\n📝 **Query:** ${mcpExec.query}\n\n📊 **Results:** ${mcpExec.result_summary}\n\n⏱️ *${mcpExec.execution_time.toFixed(2)}s*`,
+              content: `🔍 **${mcpExec.tool.replace('_', ' ').toUpperCase()} RESULT**\n\n📥 **Input:** ${mcpExec.query}\n\n📤 **Output:** ${mcpExec.result_summary}\n\n⏱️ *${mcpExec.execution_time.toFixed(2)}s*`,
               timestamp: new Date(mcpExec.timestamp),
               workflow_id: workflowId,
               mcp_details: {
@@ -896,16 +966,15 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
         // Add audit line
         addAuditLineToRecentThoughts('approved', tool, query)
         
-        // Transform to green approved message with MCP result summary
-        setTimeout(() => {
-          setChatMessages(prev => prev.map(msg => {
+        // Transform to green approved message with MCP result summary immediately
+        setChatMessages(prev => prev.map(msg => {
             if (msg.id === message.id && msg.hitl_prompt) {
               // Prepare approved content with summary
               let approvedContent = ''
               let mcpResult = null
               
               if (msg.hitl_prompt.mcp_tool) {
-                approvedContent = `Approved: ${stripEmojis(msg.hitl_prompt.mcp_tool)} — Processing query...`
+                approvedContent = `🔍 Processing ${stripEmojis(msg.hitl_prompt.mcp_tool).toLowerCase()}...`
                 // Store MCP details for later result population
                 mcpResult = {
                   tool: msg.hitl_prompt.mcp_tool,
@@ -913,7 +982,7 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
                   reason: msg.hitl_prompt.mcp_reason
                 }
               } else {
-                approvedContent = `Approved: ${stripEmojis(msg.hitl_prompt.context?.mcp_tool || 'action')} — ${stripEmojis(msg.hitl_prompt.context?.query?.substring(0, 50) || 'query')}...`
+                approvedContent = `🔍 Processing ${stripEmojis(msg.hitl_prompt.context?.mcp_tool || 'action').toLowerCase()}...`
               }
               
               return {
@@ -928,7 +997,6 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
             }
             return msg
           }))
-        }, 200)
       } else {
         const tool = message.hitl_prompt?.mcp_tool || message.hitl_prompt?.context?.mcp_tool || 'MCP'
         const query = message.hitl_prompt?.mcp_query || message.hitl_prompt?.context?.query || ''
@@ -936,10 +1004,8 @@ export function HITLSidebar({ onWidthChange }: HITLSidebarProps = {}) {
         // Add audit line for skip
         addAuditLineToRecentThoughts('skipped', tool, query)
         
-        // If skipped, remove the message
-        setTimeout(() => {
-          setChatMessages(prev => prev.filter(msg => msg.id !== message.id))
-        }, 500)
+        // If skipped, remove the message immediately
+        setChatMessages(prev => prev.filter(msg => msg.id !== message.id))
       }
       
       // Start polling (will be skipped if already active)

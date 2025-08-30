@@ -333,7 +333,7 @@ if settings.environment == "development":
             }
 
 # Include API endpoints for frontend integration
-from .api.endpoints import hitl, document_management, results, legal_chat, chat_management, batch
+from .api.endpoints import hitl, document_management, results, legal_chat, chat_management, batch, knowledge_base
 
 app.include_router(hitl.router)
 app.include_router(document_management.router)
@@ -341,6 +341,7 @@ app.include_router(results.router)
 app.include_router(legal_chat.router)
 app.include_router(chat_management.router)
 app.include_router(batch.router)
+app.include_router(knowledge_base.router)
 
 # Error handlers
 @app.exception_handler(HTTPException)

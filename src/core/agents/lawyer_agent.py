@@ -12,6 +12,7 @@ import re
 from ..models import JurisdictionAnalysis, FeatureAnalysisResponse, UserQueryResponse
 from .real_mcp_client import RealMCPClient
 from ..llm_service import llm_client
+from ..config_manager import get_system_prompt, get_knowledge_base
 
 class LawyerAgent:
     """
@@ -140,42 +141,31 @@ class LawyerAgent:
                     if search_result.get('source_document'):
                         sources.append(f"{jurisdiction} - {search_result['source_document']}")
         
+        # Use ONLY the configurable system prompt
+        system_prompt = get_system_prompt()
+        knowledge_base = get_knowledge_base()
+        
         # Generate advice prompt with or without MCP legal context
         if context_text:
-            # With MCP context
-            advice_prompt = f"""You are a legal compliance expert for TikTok platform regulations.
+            advice_prompt = f"""{system_prompt}
 
 User Query: {query}
 Additional Context: {context}
 
-Relevant Legal Context from Search:
+Relevant Legal Context:
 {context_text}
 
-Provide helpful, practical legal guidance addressing the user's question.
-Focus on:
-1. Direct answer to their question
-2. Specific compliance recommendations
-3. Jurisdictional considerations
-4. Actionable next steps
-
-Be concise but thorough. Provide specific guidance rather than generic advice.
+Knowledge Base:
+{knowledge_base}
 """
         else:
-            # Without MCP context - general legal knowledge
-            advice_prompt = f"""You are a legal compliance expert for TikTok platform regulations.
+            advice_prompt = f"""{system_prompt}
 
 User Query: {query}
 Additional Context: {context}
 
-Since detailed legal database search is not available, provide general compliance guidance based on common regulatory patterns for social media platforms.
-
-Focus on:
-1. Direct answer to their question based on general legal principles
-2. Common compliance requirements for similar features/situations
-3. Major jurisdictional considerations (US, EU, etc.)
-4. Actionable next steps including recommendation to consult legal experts
-
-Note: This is general guidance based on common regulatory patterns. Specific legal review is recommended for implementation.
+Knowledge Base:
+{knowledge_base}
 """
         
         try:
@@ -201,13 +191,17 @@ Note: This is general guidance based on common regulatory patterns. Specific leg
         
         try:
             # Basic LLM response without MCP context
-            fallback_prompt = f"""You are a legal compliance expert for TikTok platform regulations.
+            # Use ONLY the configurable system prompt
+            system_prompt = get_system_prompt()
+            knowledge_base = get_knowledge_base()
+            
+            fallback_prompt = f"""{system_prompt}
 
 User Query: {query}
 Context: {context}
 
-Provide general legal compliance guidance for TikTok features and operations.
-Be helpful but note that this is general guidance and specific legal review may be needed.
+Knowledge Base:
+{knowledge_base}
 """
             
             response = await llm_client.complete(fallback_prompt, max_tokens=600, temperature=0.2)
@@ -535,7 +529,12 @@ Be helpful but note that this is general guidance and specific legal review may 
             for result in previous_results
         ])
         
-        reasoning_prompt = f"""You are a legal reasoning agent analyzing TikTok feature compliance.
+        # Use ONLY the configurable system prompt
+        system_prompt = get_system_prompt()
+        
+        reasoning_prompt = f"""{system_prompt}
+
+Analyzing uploaded document compliance. Decide next action.
 
 Feature Context:
 - Feature: {context.get('original_feature', 'Unknown')}
@@ -544,45 +543,22 @@ Feature Context:
 - Risk Indicators: {context.get('risk_indicators', [])}
 - Category: {context.get('feature_category', 'Unknown')}
 
-Available Legal Analysis Tools:
-{tools_description or "No tools available"}
+Available Tools:
+{tools_description or "None"}
 
-Previous MCP Calls Made:
-{previous_calls or "None yet"}
+Previous Calls:
+{previous_calls or "None"}
 
-Analysis Rules:
-1. ONLY call tools for jurisdictions that are relevant to this specific feature
-2. Focus on jurisdictions mentioned in geographic_implications first
-3. Match feature requirements to tool specialties:
-   - For minor protection features → tools with "minor protection" specialty
-   - For data processing features → tools with "data protection" specialty  
-   - For content moderation features → tools with "content moderation" specialty
-4. Don't call tools for irrelevant jurisdictions just because they exist
-5. Don't call the same tool twice unless you need different information
-6. Stop when you have sufficient information for compliance analysis
-7. If geographic_implications is empty or unclear, you may request clarification
+Decide:
+- "call_mcp": Need more information from tool
+- "finalize": Have sufficient information
 
-Decide your next action:
-- "call_mcp": Need more information from a specific jurisdiction MCP tool
-- "request_clarification": Need user clarification on ambiguous aspects
-- "finalize": Have sufficient information to make final compliance decision
-
-For requesting clarification, specify:
-- What type of clarification is needed (geographic_scope, feature_category, risk_assessment)
-- Specific question to ask the user
-- Why this clarification is critical for accurate analysis
-
-If calling MCP, specify:
-- Which MCP tool to call (exact name from available tools)
-- What specific legal question/focus area to analyze
-- BRIEF reason (maximum 10 words) why this information is needed
-
-Respond ONLY with valid JSON:
+JSON format:
 {{
     "action": "call_mcp" or "finalize",
     "mcp_tool_name": "exact_tool_name_from_list",
-    "query_focus": "specific legal question to analyze",
-    "reasoning": "brief 10-word reason for this action"
+    "query_focus": "specific legal question",
+    "reasoning": "brief reason"
 }}"""
         
         try:
@@ -882,10 +858,13 @@ Respond ONLY with valid JSON:
         feature_category = context.get("feature_category", "General Feature")
         risk_indicators = context.get("risk_indicators", [])
         
-        # Create comprehensive legal analysis prompt
-        analysis_prompt = f"""You are a senior legal compliance expert specializing in TikTok platform regulations across global jurisdictions.
+        # Use ONLY the configurable system prompt
+        system_prompt = get_system_prompt()
+        knowledge_base = get_knowledge_base()
+        
+        analysis_prompt = f"""{system_prompt}
 
-Analyze this TikTok feature for regulatory compliance requirements:
+Analyze this uploaded document/feature:
 
 **Feature Name**: {feature_name}
 **Description**: {expanded_description}
@@ -893,30 +872,19 @@ Analyze this TikTok feature for regulatory compliance requirements:
 **Geographic Context**: {', '.join(geographic_implications) if geographic_implications else 'Not specified'}
 **Risk Indicators**: {', '.join(risk_indicators) if risk_indicators else 'None identified'}
 
-Provide a comprehensive compliance analysis in the following JSON format:
+Knowledge Base:
+{knowledge_base}
+
+Provide compliance analysis in JSON format:
 {{
     "compliance_required": boolean,
     "risk_level": integer (1-5 scale),
-    "applicable_jurisdictions": [list of relevant jurisdictions like "Utah", "EU", "California", "Florida", "Brazil"],
-    "requirements": [list of specific regulatory requirements],
-    "implementation_steps": [list of actionable implementation steps],
-    "reasoning": "detailed explanation of compliance assessment",
+    "applicable_jurisdictions": [relevant jurisdictions],
+    "requirements": [specific regulatory requirements],
+    "implementation_steps": [key implementation steps],
+    "reasoning": "explanation",
     "confidence_score": float (0.0-1.0)
 }}
-
-Consider these jurisdiction-specific regulations:
-- **Utah**: Social Media Regulation Act (age verification, curfews, parental controls)
-- **EU**: Digital Services Act, GDPR (content moderation, data privacy, transparency)
-- **California**: COPPA, CCPA, Age-Appropriate Design Code
-- **Florida**: Online Protections for Minors Act
-- **Brazil**: LGPD, data localization requirements
-
-Focus on:
-1. Whether the feature triggers any regulatory requirements
-2. Specific compliance obligations in each relevant jurisdiction
-3. Risk level based on potential regulatory impact
-4. Concrete implementation steps for compliance
-5. Confidence in your assessment
 
 Respond ONLY with valid JSON."""
 

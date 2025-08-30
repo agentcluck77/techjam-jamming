@@ -314,6 +314,7 @@ def _generate_csv_export(reports: List[Dict]) -> Response:
 @router.get("/document/{document_id}")
 async def get_document_report(document_id: str):
     """Get latest compliance report for a specific document"""
+    db_session = None
     try:
         db_session = next(db_manager.get_db_session())
         report_repo = ComplianceReportRepository(db_session)
@@ -328,6 +329,9 @@ async def get_document_report(document_id: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get report: {str(e)}")
+    finally:
+        if db_session:
+            db_session.close()
 
 @router.post("/export")
 async def export_results(result_ids: List[str], format: str = "json"):
@@ -336,6 +340,7 @@ async def export_results(result_ids: List[str], format: str = "json"):
     if format not in ["json", "csv"]:
         raise HTTPException(status_code=400, detail="Invalid export format")
     
+    db_session = None
     try:
         db_session = next(db_manager.get_db_session())
         report_repo = ComplianceReportRepository(db_session)
@@ -356,3 +361,6 @@ async def export_results(result_ids: List[str], format: str = "json"):
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+    finally:
+        if db_session:
+            db_session.close()

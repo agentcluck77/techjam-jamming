@@ -102,9 +102,10 @@ class SimpleLLMClient:
     Team Member 1 will enhance with advanced routing and caching
     """
     
-    def __init__(self):
+    def __init__(self, api_keys=None):
         self.available_providers = []
         self.preferred_model = None
+        self.api_keys = api_keys or {}
         self._initialize_clients()
         # Set Claude Sonnet 4 as default preferred model if no preference set
         if not self.preferred_model and "claude-sonnet-4-20250514" in CLAUDE_MODELS:
@@ -118,14 +119,25 @@ class SimpleLLMClient:
         else:
             logger.warning(f"Unknown model: {model_id}")
     
+    def update_api_keys(self, api_keys: dict):
+        """Update API keys and reinitialize clients"""
+        self.api_keys = api_keys
+        self.available_providers = []
+        self._initialize_clients()
+    
     def _initialize_clients(self):
         """Initialize available LLM clients based on API keys"""
         
+        # Use user-provided API keys first, fallback to environment variables
+        google_key = self.api_keys.get('google') or settings.google_api_key
+        anthropic_key = self.api_keys.get('anthropic') or settings.anthropic_api_key
+        openai_key = self.api_keys.get('openai') or settings.openai_api_key
+        
         # Google Gemini
-        if settings.google_api_key:
+        if google_key:
             try:
                 import google.generativeai as genai
-                genai.configure(api_key=settings.google_api_key)
+                genai.configure(api_key=google_key)
                 self.genai = genai  # Store genai module for dynamic model creation
                 # Add all Gemini models to available providers
                 self.available_providers.extend([
@@ -139,11 +151,11 @@ class SimpleLLMClient:
                 logger.warning(f"Failed to initialize Gemini client: {e}")
         
         # Anthropic Claude
-        if settings.anthropic_api_key:
+        if anthropic_key:
             try:
                 import anthropic
                 self.anthropic_client = anthropic.Anthropic(
-                    api_key=settings.anthropic_api_key
+                    api_key=anthropic_key
                 )
                 # Add all Claude models to available providers  
                 for model_id in CLAUDE_MODELS.keys():
@@ -154,11 +166,11 @@ class SimpleLLMClient:
                 logger.warning(f"Failed to initialize Anthropic client: {e}")
         
         # OpenAI GPT
-        if settings.openai_api_key:
+        if openai_key:
             try:
                 import openai
                 self.openai_client = openai.OpenAI(
-                    api_key=settings.openai_api_key
+                    api_key=openai_key
                 )
                 self.available_providers.append(LLMProvider.GPT_4)
                 logger.info("✅ OpenAI GPT client initialized")
@@ -166,9 +178,9 @@ class SimpleLLMClient:
                 logger.warning(f"Failed to initialize OpenAI client: {e}")
         
         if not self.available_providers:
-            logger.error("❌ No LLM providers available! Please check your API keys.")
+            logger.error("❌ No LLM providers available! Please provide API keys.")
         else:
-            logger.info(f"🎯 Available LLM providers: {[p.value for p in self.available_providers]}")
+            logger.info(f"🎯 Available LLM providers: {[getattr(p, 'value', p) for p in self.available_providers]}")
     
     async def complete(self, prompt: str, max_tokens: int = 2000, temperature: float = 0.1) -> Dict[str, Any]:
         """
@@ -441,8 +453,12 @@ class SimpleLLMClient:
             logger.error(f"OpenAI streaming API error: {e}")
             raise
 
-# Global LLM client instance
+# Global LLM client instance (with fallback to environment variables)
 llm_client = SimpleLLMClient()
+
+def create_llm_client(api_keys: dict) -> SimpleLLMClient:
+    """Create LLM client with user-provided API keys"""
+    return SimpleLLMClient(api_keys=api_keys)
 
 # TODO: Team Member 1 - Enhanced LLM router with advanced features
 # class EnhancedLLMRouter(SimpleLLMClient):

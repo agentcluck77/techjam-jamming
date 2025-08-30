@@ -10,7 +10,7 @@ root_path = os.getenv("ROOT_PATH")
 
 
 sys.path.insert(0, root_path)
-from postgres.src2.helpers.lawer_agent.get_regulation import get_region_regulation_details
+from helpers.lawer_agent.get_regulation import get_region_regulation_details
 
 
 def dicts_to_objects(data: List[dict]) -> List[Any]:

@@ -66,7 +66,7 @@ services:
       - ./logs:/app/logs
     restart: unless-stopped
 
-  # Legal MCP Service - Real functional implementation
+  # Legal MCP Service - Real PostgreSQL + pgvector implementation ✅ COMPLETED
   legal-mcp:
     build:
       context: .
@@ -75,7 +75,15 @@ services:
     ports:
       - "8010:8010"
     environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=geolegal
+      - DB_USER=user
+      - DB_PASSWORD=password
       - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
       interval: 30s
@@ -83,6 +91,9 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
+    volumes:
+      # Mount legal documents directory if needed
+      - ./src/legal-mcp/infodump:/app/src/legal-mcp/infodump:ro
 
   # Requirements MCP Service - Real functional implementation
   requirements-mcp:
@@ -110,16 +121,8 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # Legal MCP Team - ChromaDB for legal documents (TODO: Enable when legal MCP is ready)
-  # legal-chroma:
-  #   image: chromadb/chroma:latest
-  #   ports:
-  #     - "8001:8000"
-  #   volumes:
-  #     - legal_chroma_data:/chroma/chroma
-  #   environment:
-  #     - CHROMA_SERVER_HOST=0.0.0.0
-  #     - CHROMA_SERVER_HTTP_PORT=8000
+  # Legal MCP uses PostgreSQL + pgvector (no separate ChromaDB needed)
+  # ChromaDB not needed - Legal MCP uses PostgreSQL with pgvector extension
 
   # Requirements MCP Team - ChromaDB for requirements documents
   requirements-chroma:
@@ -141,7 +144,6 @@ services:
 
 volumes:
   postgres_data:
-  # legal_chroma_data:  # Uncomment when Legal MCP team is ready
   requirements_chroma_data:
 
 networks:

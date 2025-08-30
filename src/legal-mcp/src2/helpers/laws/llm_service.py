@@ -1,4 +1,4 @@
-import google.genai as genai
+import google.generativeai as genai
 import json
 import re
 import os 
@@ -10,7 +10,7 @@ load_dotenv()
 api = os.getenv("GOOGLE_API_KEY")
 
 # --- Step 0: Initialize client ---
-client = genai.Client(api_key = api)
+genai.configure(api_key=api)
 
 # raw_text = """Section 4. Section 13-63-201 is enacted to read:
 # 233 Part 2. Social Media Design Regulations
@@ -167,10 +167,8 @@ Rules:
 
 This your raw legal text: {raw_text}"""
     
-    step1_response = client.models.generate_content(
-    model="gemini-1.5-flash",
-    contents=prompt  # <-- pass a single string, not a list of dicts
-)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    step1_response = model.generate_content(prompt)
     step1_text_clean = clean_json_output(step1_response.text)
 
     try:
@@ -208,10 +206,8 @@ Rules:
 Here is your legal regulations text: {regulations_text}
 """
     # Generate Step 2 output
-    step2_response = client.models.generate_content(
-        model="gemini-1.5-flash",
-        contents = prompt  # <-- single string
-    )
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    step2_response = model.generate_content(prompt)
 
     # Clean and parse JSON
     step2_text_clean = clean_json_output(step2_response.text)

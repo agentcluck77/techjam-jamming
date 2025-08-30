@@ -40,9 +40,10 @@ class Settings(BaseSettings):
     florida_mcp_url: str = "http://localhost:8013"
     brazil_mcp_url: str = "http://localhost:8014"
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    model_config = {
+        "env_file": ".env", 
+        "case_sensitive": False
+    }
 
 # Global settings instance
 settings = Settings()

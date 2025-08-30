@@ -7,13 +7,13 @@ import asyncio
 import uuid
 import os
 import shutil
+import aiohttp
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query, Depends
 from pydantic import BaseModel, HttpUrl
 import json
-import aiohttp
 import aiofiles
 from urllib.parse import urlparse
 import re
@@ -115,16 +115,17 @@ async def upload_document(
     # Simulate processing delay
     await asyncio.sleep(0.5)
     
-    # Update status based on type
+    # Forward document to appropriate MCP for processing
     if doc_type == "requirements":
-        # Simulate requirements extraction
-        document["status"] = "analyzed"
-        document["processed"] = True
-        document["requirements_extracted"] = 15  # Mock count
+        # Send to Requirements MCP for actual processing
+        await _forward_to_requirements_mcp(file_path, document_id, file.filename)
+        document["status"] = "processing"  # Will be updated by MCP
+        document["processed"] = False
     else:  # legal
-        # Legal documents are stored and ready
-        document["status"] = "stored"
-        document["processed"] = True
+        # Send to Legal MCP for actual processing
+        await _forward_to_legal_mcp(file_path, document_id, file.filename, parsed_metadata)
+        document["status"] = "processing"  # Will be updated by MCP
+        document["processed"] = False
     
     # Update document status in database
     await doc_repo.update_document_status(document_id, document["status"])
@@ -167,34 +168,33 @@ async def get_documents(
             uploadDate=doc["uploadDate"],
             status=doc["status"],
             size=doc["size"],
-            metadata=doc.get("metadata")
+            metadata=doc.get("metadata", {})
         )
         for doc in documents
     ]
 
 @router.get("/recent", response_model=List[DocumentResponse])
-async def get_recent_uploads(limit: int = Query(5, ge=1, le=20)):
+async def get_recent_uploads(
+    limit: int = Query(5, ge=1, le=20),
+    doc_repo: DocumentRepository = Depends(get_document_repo)
+):
     """Get recent uploads for landing page display"""
     
-    documents = list(stored_documents.values())
-    
-    # Sort by upload date (newest first)
-    documents.sort(key=lambda x: x["uploadDate"], reverse=True)
-    
-    # Get recent documents
-    recent_docs = documents[:limit]
+    # Get recent documents from database
+    filters = {"limit": limit}
+    documents = await doc_repo.get_all_documents(filters)
     
     return [
         DocumentResponse(
             id=doc["id"],
             name=doc["name"],
             type=doc["type"],
-            uploadDate=doc["uploadDate"], 
+            uploadDate=doc["uploadDate"],
             status=doc["status"],
             size=doc["size"],
-            metadata=doc.get("metadata")
+            metadata=doc.get("metadata", {})
         )
-        for doc in recent_docs
+        for doc in documents
     ]
 
 # Knowledge Base endpoints (must be before dynamic routes)
@@ -236,13 +236,16 @@ async def update_system_prompt(request: dict):
         raise HTTPException(status_code=500, detail="Failed to update system prompt")
 
 @router.get("/{document_id}")
-async def get_document(document_id: str):
+async def get_document(
+    document_id: str,
+    doc_repo: DocumentRepository = Depends(get_document_repo)
+):
     """Get specific document details"""
     
-    if document_id not in stored_documents:
-        raise HTTPException(status_code=404, detail="Document not found")
+    doc = await doc_repo.get_document_by_id(document_id)
     
-    doc = stored_documents[document_id]
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
     
     return DocumentResponse(
         id=doc["id"],
@@ -251,17 +254,20 @@ async def get_document(document_id: str):
         uploadDate=doc["uploadDate"],
         status=doc["status"],
         size=doc["size"],
-        metadata=doc.get("metadata")
+        metadata=doc.get("metadata", {})
     )
 
 @router.delete("/{document_id}")
-async def delete_document(document_id: str):
+async def delete_document(
+    document_id: str,
+    doc_repo: DocumentRepository = Depends(get_document_repo)
+):
     """Delete a document and its file"""
     
-    if document_id not in stored_documents:
-        raise HTTPException(status_code=404, detail="Document not found")
+    doc = await doc_repo.get_document_by_id(document_id)
     
-    doc = stored_documents[document_id]
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
     
     # Delete file from disk if it exists
     if "file_path" in doc:
@@ -273,15 +279,17 @@ async def delete_document(document_id: str):
                 # Log error but don't fail the request
                 print(f"Warning: Could not delete file {file_path}: {e}")
     
-    del stored_documents[document_id]
+    await doc_repo.delete_document(document_id)
     
     return {"message": "Document deleted successfully", "document_id": document_id}
 
 @router.get("/stats/overview")
-async def get_document_stats():
+async def get_document_stats(
+    doc_repo: DocumentRepository = Depends(get_document_repo)
+):
     """Get document library statistics"""
     
-    documents = list(stored_documents.values())
+    documents = await doc_repo.get_all_documents({})
     
     total_count = len(documents)
     requirements_count = len([doc for doc in documents if doc["type"] == "requirements"])
@@ -394,15 +402,26 @@ For each compliance analysis, provide:
 - **Implementation**: Balance legal requirements with technical feasibility"""
 
 def get_system_prompt_content() -> str:
-    """Get current system prompt content"""
-    global _system_prompt_content
-    return _system_prompt_content
+    """Get current system prompt content from markdown file"""
+    import os
+    system_prompt_file = "data/config/system_prompt.md"
+    if os.path.exists(system_prompt_file):
+        with open(system_prompt_file, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    else:
+        raise HTTPException(status_code=404, detail="System prompt file not found. Please create data/config/system_prompt.md")
 
 def update_system_prompt_content(content: str) -> bool:
-    """Update system prompt content"""
-    global _system_prompt_content
-    _system_prompt_content = content
-    return True
+    """Update system prompt content to markdown file"""
+    import os
+    system_prompt_file = "data/config/system_prompt.md"
+    os.makedirs("data/config", exist_ok=True)
+    try:
+        with open(system_prompt_file, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return True
+    except Exception:
+        return False
 
 class UrlUploadRequest(BaseModel):
     url: str
@@ -570,3 +589,60 @@ def cleanup_document_files():
     # This would be called periodically to clean up files
     # whose document records have been deleted
     pass
+
+# MCP Integration Helper Functions
+async def _forward_to_requirements_mcp(file_path: Path, document_id: str, filename: str):
+    """Forward document to Requirements MCP for processing"""
+    requirements_mcp_url = os.getenv('REQUIREMENTS_MCP_URL', 'http://localhost:8011')
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            with open(file_path, 'rb') as file:
+                data = aiohttp.FormData()
+                data.add_field('file', file, filename=filename)
+                data.add_field('document_type', 'prd')
+                data.add_field('document_id', document_id)  # Pass the same document ID
+                
+                async with session.post(
+                    f"{requirements_mcp_url}/api/v1/upload",
+                    data=data
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        print(f"✅ Document forwarded to Requirements MCP with ID {document_id}: {result}")
+                    else:
+                        response_text = await response.text()
+                        print(f"❌ Failed to forward to Requirements MCP: HTTP {response.status} - {response_text}")
+                        
+    except Exception as e:
+        print(f"❌ Error forwarding to Requirements MCP: {e}")
+
+async def _forward_to_legal_mcp(file_path: Path, document_id: str, filename: str, metadata: Dict):
+    """Forward document to Legal MCP for processing"""
+    legal_mcp_url = os.getenv('LEGAL_MCP_URL', 'http://localhost:8010')
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            with open(file_path, 'rb') as file:
+                data = aiohttp.FormData()
+                data.add_field('file', file, filename=filename)
+                data.add_field('document_type', 'legal')
+                
+                # Add jurisdiction and law title if provided
+                if metadata.get('jurisdiction'):
+                    data.add_field('jurisdiction', metadata['jurisdiction'])
+                if metadata.get('law_title'):
+                    data.add_field('law_title', metadata['law_title'])
+                
+                async with session.post(
+                    f"{legal_mcp_url}/api/v1/upload",
+                    data=data
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        print(f"✅ Document forwarded to Legal MCP: {result}")
+                    else:
+                        print(f"❌ Failed to forward to Legal MCP: HTTP {response.status}")
+                        
+    except Exception as e:
+        print(f"❌ Error forwarding to Legal MCP: {e}")

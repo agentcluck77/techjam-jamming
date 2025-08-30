@@ -31,7 +31,7 @@ class MCPSearchClient:
     
     async def search_legal_mcp(self, search_query: str, feature_context: Dict[str, Any], jurisdictions: List[str] = None) -> Dict[str, Any]:
         """
-        Call legal MCP service for document search
+        Call real Legal MCP service for document search using PostgreSQL + pgvector
         Search legal MCP across all jurisdictions with jurisdiction filtering
         
         Args:
@@ -43,14 +43,26 @@ class MCPSearchClient:
             Search results from legal MCP with jurisdiction metadata
         """
         service = self.mcp_services['legal']
-        url = f"{service['url']}/api/v1/bulk_retrieve"
         
         try:
             async with aiohttp.ClientSession() as session:
-                payload = {
-                    "include_content": True,
-                    "jurisdictions": jurisdictions
-                }
+                # Use semantic search if we have a query, otherwise bulk retrieve
+                if search_query and search_query.strip():
+                    url = f"{service['url']}/api/v1/search"
+                    payload = {
+                        "search_type": "semantic",
+                        "query": search_query,
+                        "jurisdictions": jurisdictions,
+                        "max_results": 50
+                    }
+                else:
+                    # Fallback to bulk retrieve for empty queries
+                    url = f"{service['url']}/api/v1/bulk_retrieve"
+                    payload = {
+                        "include_content": True,
+                        "jurisdictions": ','.join(jurisdictions) if jurisdictions else None,
+                        "max_results": 50
+                    }
                 
                 async with session.post(
                     url, 

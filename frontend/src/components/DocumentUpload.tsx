@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { useDocumentStore, useWorkflowStore } from '@/lib/stores'
-import { uploadDocument } from '@/lib/api'
+import { uploadDocument, uploadLegalDocument, addStoredLegalDocument, StoredLegalDocument } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { FileText, Edit, Link, Building, Sparkles, Lightbulb, CheckCircle } from 'lucide-react'
@@ -136,37 +136,71 @@ Use the requirements MCP to search and analyze the full document content.`
       // Simulate upload progress
       updateUploadProgress(fileId, { progress: 20, status: 'uploading' })
 
-      // Include jurisdiction and law title in metadata for legal documents
-      const metadata: any = {}
-      if (selectedJurisdiction) metadata.jurisdiction = selectedJurisdiction
-      if (lawTitle && documentType === 'legal') metadata.law_title = lawTitle
+      if (documentType === 'legal' && selectedJurisdiction && lawTitle) {
+        // Use Legal MCP API for legal documents
+        updateUploadProgress(fileId, { progress: 40, status: 'uploading to Legal MCP' })
+        
+        const mcpResponse = await uploadLegalDocument(file, selectedJurisdiction, lawTitle)
+        
+        updateUploadProgress(fileId, { progress: 80, status: 'storing in database' })
+        
+        // Store document information locally
+        const documentId = `legal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        const storedDocument: StoredLegalDocument = {
+          id: documentId,
+          filename: file.name,
+          jurisdiction: selectedJurisdiction,
+          statute: lawTitle,
+          uploadDate: new Date().toISOString(),
+          status: 'stored',
+          mcpResponse
+        }
+        
+        addStoredLegalDocument(storedDocument)
+        
+        toast.success(`Legal document uploaded to ${selectedJurisdiction} jurisdiction`)
+        
+        updateUploadProgress(fileId, { progress: 100, status: 'complete' })
+        
+        // Clean up progress after a short delay
+        setTimeout(() => {
+          removeUploadProgress(fileId)
+        }, 2000)
 
-      const document = await uploadDocument(file, documentType, metadata)
+        onUploadComplete?.(documentId)
+      } else {
+        // Use regular API for requirements documents
+        const metadata: any = {}
+        if (selectedJurisdiction) metadata.jurisdiction = selectedJurisdiction
+        if (lawTitle && documentType === 'legal') metadata.law_title = lawTitle
 
-      updateUploadProgress(fileId, { progress: 80, status: 'processing' })
+        const document = await uploadDocument(file, documentType, metadata)
 
-      // Add to document store
-      addDocument(document)
-      
-      updateUploadProgress(fileId, { progress: 100, status: 'complete' })
-      
-      // Clean up progress after a short delay
-      setTimeout(() => {
-        removeUploadProgress(fileId)
-      }, 2000)
+        updateUploadProgress(fileId, { progress: 80, status: 'processing' })
 
-      // Show library prompt for requirements documents
-      if (documentType === 'requirements') {
-        setUploadedDocument({ 
-          id: document.id, 
-          name: document.name,
-          type: 'file',
-          inputMode: 'file'
-        })
-        setShowLibraryPrompt(true)
+        // Add to document store
+        addDocument(document)
+        
+        updateUploadProgress(fileId, { progress: 100, status: 'complete' })
+        
+        // Clean up progress after a short delay
+        setTimeout(() => {
+          removeUploadProgress(fileId)
+        }, 2000)
+
+        // Show library prompt for requirements documents
+        if (documentType === 'requirements') {
+          setUploadedDocument({ 
+            id: document.id, 
+            name: document.name,
+            type: 'file',
+            inputMode: 'file'
+          })
+          setShowLibraryPrompt(true)
+        }
+
+        onUploadComplete?.(document.id)
       }
-
-      onUploadComplete?.(document.id)
     } catch (error) {
       console.error('Upload failed:', error)
       updateUploadProgress(fileId, { 
@@ -174,6 +208,7 @@ Use the requirements MCP to search and analyze the full document content.`
         status: 'error', 
         error: error instanceof Error ? error.message : 'Upload failed'
       })
+      toast.error(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setUploading(false)
     }

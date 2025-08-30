@@ -9,14 +9,22 @@ root_path = os.getenv("ROOT_PATH")
 # Add the project root directory to Python path
 sys.path.insert(0, root_path)
 
-from postgres.src2.helpers.db.pdf_path_getter import get_pdf_path
-from postgres.src2.helpers.db.pdf_parser import parse_pdf
-from postgres.src2.helpers.db.chunker import conditional_chunk
-from postgres.src2.helpers.db.upsert_definitions import upsert_definitions
-from postgres.src2.helpers.db.upsert_regulations import upsert_regulations
-from postgres.src2.helpers.db.fetch_pdf import clean, split_into_json_for_step2
-from postgres.scripts.table_setup import setup_table
-from postgres.src2.helpers.db.common_queries import Definitions, Regulations
+from helpers.db.pdf_path_getter import get_pdf_path
+from helpers.db.pdf_parser import parse_pdf
+from helpers.db.chunker import conditional_chunk
+from helpers.db.upsert_definitions import upsert_definitions
+from helpers.db.upsert_regulations import upsert_regulations
+from helpers.db.fetch_pdf import clean, split_into_json_for_step2
+from helpers.db.common_queries import Definitions, Regulations
+
+# Import table setup - this may need adjustment
+try:
+    from scripts.table_setup import setup_table
+except ImportError:
+    # Fallback if table_setup not available
+    def setup_table(region):
+        print(f"Warning: table_setup not available for region {region}")
+        pass
 
 
 async def upsert_law(region: str, pdf_path: str, statute: str) -> None:

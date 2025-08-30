@@ -12,9 +12,10 @@ import logging
 import uuid
 import json
 import asyncio
+import re
 
 from ...core.agents.lawyer_agent import LawyerAgent
-from ...core.llm_service import llm_client
+from ...core.llm_service import llm_client, create_llm_client
 from ...core.models import ChatMessage as PersistentChatMessage
 from ...services.chat_storage import chat_storage
 from .hitl import WorkflowStartRequest, active_workflows, send_hitl_prompt, wait_for_hitl_response, pending_hitl_prompts
@@ -34,6 +35,7 @@ class ChatRequest(BaseModel):
     message: str
     context: Optional[str] = None
     chat_id: Optional[str] = None  # For continuing existing chat sessions
+    api_keys: Optional[Dict[str, str]] = None  # User-provided API keys
 
 class AgentAction(BaseModel):
     action_type: str  # "mcp_call", "analysis", "response", "hitl_prompt"
@@ -86,6 +88,7 @@ class AgentState(BaseModel):
     status: str = "active"  # active, waiting_hitl, completed, error
     mcp_sent_count: int = 0  # Track sent MCP executions atomically
     mcp_executions_for_chat: List[Dict[str, Any]] = []  # Store MCP executions for frontend display
+    api_keys: Optional[Dict[str, str]] = None  # User-provided API keys
 
 @router.post("/legal-chat-stream")
 async def legal_compliance_chat_stream(request: ChatRequest):
@@ -106,6 +109,12 @@ async def legal_compliance_chat_stream(request: ChatRequest):
             # Send initial status
             yield f"data: {json.dumps({'type': 'status', 'session_id': session_id, 'message': 'Starting analysis...'})}\n\n"
             
+            # Create LLM client with user API keys or use default
+            if request.api_keys:
+                current_llm_client = create_llm_client(request.api_keys)
+            else:
+                current_llm_client = llm_client
+            
             # Use LLM streaming for real-time token generation
             prompt = f"""Analyze this legal compliance request and provide a detailed assessment:
 
@@ -121,7 +130,7 @@ Be thorough and specific in your analysis."""
             
             # Stream tokens as they come from the LLM
             full_response = ""
-            async for chunk in llm_client.stream(prompt, max_tokens=1500, temperature=0.1):
+            async for chunk in current_llm_client.stream(prompt, max_tokens=1500, temperature=0.1):
                 if chunk.get("content"):
                     full_response += chunk["content"]
                     yield f"data: {json.dumps({'type': 'token', 'content': chunk['content'], 'session_id': session_id})}\n\n"
@@ -221,7 +230,8 @@ async def legal_compliance_chat_session(request: ChatRequest, background_tasks: 
                 conversation_history=conversation_history,
                 current_task=f"legal_analysis: {request.message[:50]}...",
                 start_time=start_time,
-                status="active"
+                status="active",
+                api_keys=request.api_keys
             )
             agent_locks[session_id] = asyncio.Lock()
             
@@ -279,7 +289,8 @@ async def legal_compliance_chat(request: ChatRequest, background_tasks: Backgrou
             conversation_history=[{"role": "user", "content": request.message}],
             current_task=f"legal_analysis: {request.message[:50]}...",
             start_time=start_time,
-            status="active"
+            status="active",
+            api_keys=request.api_keys
         )
         agent_locks[session_id] = asyncio.Lock()  # Prevent concurrent loops
         
@@ -483,7 +494,7 @@ async def _agent_decide_next_action(session_id: str, user_message: str, context:
     analysis_count = len([step for step in agent_state.reasoning_steps if step.type == "llm_decision" and "analysis" in step.content.lower()])
     
     # Enhanced autonomous agent system prompt - 100% agent orchestrated
-    system_prompt = f"""You are an autonomous legal compliance agent with complete decision-making authority. You operate like ChatGPT or Cursor - making all workflow decisions independently through reasoning.
+    system_prompt = f"""You are an autonomous compliance gap detection agent. Your sole purpose is to identify specific compliance gaps in requirements/documents with strong logical reasoning. You operate like ChatGPT or Cursor - making all workflow decisions independently.
 
 === CURRENT CONTEXT ===
 User Request: {user_message}
@@ -506,12 +517,25 @@ STATE ANALYSIS:
 
 AVAILABLE ACTIONS:
 1. "mcp_call" - Access external legal databases (requires human approval for security)
-   - legal_mcp.search_documents: Search legal regulations, statutes, case law  
-   - requirements_mcp.search_requirements: Search technical requirements, standards
-   - requirements_mcp.check_document_status: Check if newly uploaded documents are ready for search
+   
+   REQUIREMENTS MCP TOOLS:
+   - Tool: requirements_mcp.search_requirements
+   - For document content: Use query "document_id:UUID extract requirements" 
+   - For semantic search: Use query "your search terms"
+   - For status check: Use query "check_document_status document_id:UUID"
+   - Examples:
+     * "document_id:b7c3f61a-a1d0-48f1-9e99-352f86329aa1 extract all requirements"
+     * "check_document_status document_id:b7c3f61a-a1d0-48f1-9e99-352f86329aa1"
+     * "API authentication requirements"
+   
+   LEGAL MCP TOOLS:
+   - Tool: legal_mcp.search_documents  
+   - For semantic search: Use query "your legal search terms"
+   - Example: "GDPR data protection requirements"
+   
    - NOTE: Limited to {5 - agent_state.mcp_sent_count} more MCP calls this session
-2. "analysis" - Perform deep reasoning/analysis on available information
-3. "response" - Provide final answer to user (when sufficient information gathered)
+2. "analysis" - Identify specific compliance gaps with logical reasoning
+3. "response" - Provide focused compliance gap report (when sufficient information gathered)
 4. "hitl_prompt" - Request human input (rare - only for clarifications)
 
 === AGENT ORCHESTRATION PRINCIPLES ===
@@ -523,23 +547,32 @@ FULL AUTONOMY: You control ALL workflow decisions:
 - How to structure and pace your reasoning process
 - Quality standards for your final response
 
-INTELLIGENT DECISION-MAKING:
-- Simple questions (definitions, basic concepts): Respond immediately if you have knowledge
-- Complex compliance analysis: May need 1-3 analysis steps + external data
-- Multi-jurisdictional queries: Often require MCP calls for specific regulations
-- Precedent/case law questions: Usually need legal database access
+COMPLIANCE GAP DETECTION FOCUS:
+- Your ONLY job is to identify specific compliance gaps with strong reasoning
+- Simple gap detection: Respond immediately if document data is available  
+- Complex gap analysis: May need 1-2 analysis steps to examine requirements thoroughly
+- Multi-jurisdictional gaps: Require MCP calls for specific regulations/laws
+- Focus on detection and reasoning, NOT implementation advice
 
-MCP EFFICIENCY RULES:
+MCP EFFICIENCY RULES - MANDATORY:
 - If an MCP search returns no results, try ONE different search strategy max
-- Don't make multiple similar MCP calls - vary search terms or approach significantly
+- Don't make multiple similar MCP calls - vary search terms or approach significantly  
 - If document ID searches fail, try semantic searches with different keywords
-- After 2 failed MCP attempts, proceed with analysis based on available information
+- After 2 failed MCP attempts, IMMEDIATELY proceed with analysis based on available information
+- STOP making MCP calls if results are irrelevant (e.g., getting social media laws when searching for GDPR)
+- If Legal MCP returns only "Digital Services Act" or social media content for GDPR searches, STOP and proceed to analysis
+- Do NOT make more than 3 total MCP calls per workflow - this is inefficient and wastes tokens
 
-DOCUMENT PROCESSING RULES:
-- For newly uploaded documents (uploaded <5 minutes ago), check processing status first
-- If status is "processing", inform user "Generating embeddings..." and wait
-- Only search documents with status "completed"
-- For document_id searches that fail, the document may still be processing
+DOCUMENT PROCESSING WORKFLOW - MANDATORY:
+1. For documents uploaded <5 minutes ago, ALWAYS check status FIRST using check_requirements_document_status
+2. If status is "processing": 
+   - Immediately inform user: "🔄 Generating embeddings for your document... This may take 30-60 seconds."
+   - Wait 30 seconds, then check status again
+   - Repeat until status becomes "completed"
+3. If status is "completed": Proceed with search_requirements 
+4. If document_id search fails, the document may still be processing - check status first
+
+NEVER search documents without checking status first for new uploads!
 
 EFFICIENCY OPTIMIZATION:
 - Avoid repetitive analysis - build on previous work
@@ -549,9 +582,11 @@ EFFICIENCY OPTIMIZATION:
 
 ERROR HANDLING & QUALITY:
 - If MCP calls fail, acknowledge and work with available information
-- If analysis reveals gaps, either gather more data or acknowledge limitations
+- If Legal MCP returns irrelevant results (e.g., social media laws for GDPR queries), acknowledge database limitations
+- State: "Note: Legal database contains limited regulations. Analysis based on general compliance principles."
 - Provide confidence levels for complex legal interpretations
 - Always cite sources when making specific legal claims
+- When Legal MCP lacks specific laws, use your general legal knowledge with appropriate disclaimers
 
 === DECISION LOGIC FRAMEWORK ===
 
@@ -571,6 +606,22 @@ CALL MCP TOOLS IF:
 - User asks about specific jurisdictions (Utah, GDPR, CCPA, etc.)
 - Require current legal precedents or recent regulatory changes
 - Need to verify compliance requirements for specific industries
+
+COMPLIANCE GAP ANALYSIS WORKFLOW - MANDATORY:
+For ANY document compliance analysis, you MUST follow this two-step MCP workflow:
+1. First call requirements_mcp.search_requirements to extract document requirements
+2. Then call legal_mcp.search_documents to find relevant regulations (GDPR, CCPA, employment law, etc.)
+3. Finally perform analysis to identify gaps between requirements and legal obligations
+
+CRITICAL RULES - NO EXCEPTIONS:
+- NEVER rely on your training data or memory for legal regulations
+- ALWAYS call legal_mcp.search_documents before making compliance findings
+- Your training data is outdated and incomplete - only trust MCP search results
+- If you think you "know" a regulation, you're wrong - search the MCP database
+- Use targeted legal searches like "GDPR data protection", "CCPA consumer rights", "employment law compliance"
+- Do NOT provide compliance analysis without checking BOTH requirements AND legal MCP database
+
+FORBIDDEN: Making compliance statements based on your training knowledge without MCP verification
 
 === RESPONSE QUALITY STANDARDS ===
 
@@ -592,7 +643,7 @@ Respond with exactly this format:
 
 ACTION_TYPE: [mcp_call|analysis|response|hitl_prompt]
 REASONING: [Your strategic reasoning for this choice - 1-2 sentences]
-RESPONSE_CONTENT: [If action_type is "response", provide complete answer here]
+RESPONSE_CONTENT: [If action_type is "response", provide focused compliance gap report ONLY]
 DETAILS: [For other action types: specific MCP query, analysis focus, etc.]
 
 What is your autonomous decision for the next action?"""
@@ -601,7 +652,13 @@ What is your autonomous decision for the next action?"""
         # Allocate tokens based on action type - agent controls response length
         max_tokens = 2000  # Generous allocation for autonomous decision-making
         
-        response = await llm_client.complete(
+        # Use LLM client with user API keys if available
+        if agent_state.api_keys:
+            current_llm_client = create_llm_client(agent_state.api_keys)
+        else:
+            current_llm_client = llm_client
+        
+        response = await current_llm_client.complete(
             system_prompt,
             max_tokens=max_tokens,
             temperature=0.1
@@ -652,12 +709,18 @@ What is your autonomous decision for the next action?"""
                 details = {"description": details_str}
             i += 1
         
+        # Normalize MCP-related action types
+        if action_type in ["legal_mcp", "requirements_mcp"]:
+            original_action = action_type
+            action_type = "mcp_call"
+            reasoning = f"Normalized {original_action} to mcp_call"
+        
         # Fallback parsing - look for action types anywhere in the text
         if not action_type or action_type not in ["mcp_call", "analysis", "response", "hitl_prompt"]:
             content_lower = content.lower()
-            if "mcp_call" in content_lower:
+            if "mcp_call" in content_lower or "legal_mcp" in content_lower or "requirements_mcp" in content_lower:
                 action_type = "mcp_call"
-                reasoning = "Fallback: Detected mcp_call in response"
+                reasoning = "Fallback: Detected MCP call in response"
             elif "analysis" in content_lower and analysis_count < 3:  # Allow max 3 analysis steps
                 action_type = "analysis"
                 reasoning = "Fallback: Detected analysis request"
@@ -751,7 +814,13 @@ Make your decision based purely on context and reasoning - no keyword matching a
 KEEP REASONING BRIEF: Maximum 10 words explaining your choice."""
 
     try:
-        response = await llm_client.complete(
+        # Use LLM client with user API keys if available
+        if agent_state.api_keys:
+            current_llm_client = create_llm_client(agent_state.api_keys)
+        else:
+            current_llm_client = llm_client
+            
+        response = await current_llm_client.complete(
             decision_prompt,
             max_tokens=200,
             temperature=0.1
@@ -828,10 +897,40 @@ async def _agent_execute_mcp_call(session_id: str, action: AgentAction):
                 query=query
             )
         elif mcp_tool == "requirements_mcp":
-            result = await lawyer_agent.requirements_mcp.search_requirements(
-                search_type="semantic", 
-                query=query
-            )
+            # Parse query to determine search type
+            if "document_id:" in query:
+                # Extract document ID from query like "document_id:abc-123 full content analysis"
+                doc_id_match = re.search(r'document_id:([a-f0-9\-]+)', query)
+                if doc_id_match:
+                    document_id = doc_id_match.group(1)
+                    result = await lawyer_agent.requirements_mcp.search_requirements(
+                        search_type="metadata",
+                        document_id=document_id,
+                        max_results=10
+                    )
+                else:
+                    result = await lawyer_agent.requirements_mcp.search_requirements(
+                        search_type="semantic", 
+                        query=query
+                    )
+            elif "check_document_status" in query:
+                # Extract document ID for status check
+                doc_id_match = re.search(r'document_id:([a-f0-9\-]+)', query)
+                if doc_id_match:
+                    document_id = doc_id_match.group(1)
+                    # Use bulk_retrieve to check if document exists
+                    result = await lawyer_agent.requirements_mcp.search_requirements(
+                        search_type="metadata",
+                        document_id=document_id,
+                        max_results=1
+                    )
+                else:
+                    result = {"error": "Invalid document status check format"}
+            else:
+                result = await lawyer_agent.requirements_mcp.search_requirements(
+                    search_type="semantic", 
+                    query=query
+                )
         else:
             logger.error(f"❌ Unknown MCP tool: {mcp_tool}")
             return
@@ -844,10 +943,14 @@ async def _agent_execute_mcp_call(session_id: str, action: AgentAction):
             "timestamp": datetime.now().isoformat()
         })
         
-        # Add to conversation history
+        # Add full MCP results to conversation (don't truncate - agent needs complete data)
+        result_content = json.dumps(result, indent=2)
+        if len(result_content) > 10000:  # Only truncate if extremely large (>10k chars)
+            result_content = result_content[:9900] + "...\n[Content truncated - but full data available for analysis]"
+            
         agent_state.conversation_history.append({
-            "role": "tool",
-            "content": f"MCP Tool {mcp_tool} executed with result: {json.dumps(result, indent=2)[:200]}..."
+            "role": "tool", 
+            "content": f"MCP Tool {mcp_tool} executed successfully. Retrieved data:\n\n{result_content}"
         })
         
         logger.info(f"✅ Agent MCP call completed successfully")
@@ -882,28 +985,43 @@ async def _agent_perform_analysis(session_id: str, action: AgentAction):
             if step.type == "analysis" and step.content
         ]) or "No previous analysis"
         
-        analysis_prompt = f"""You are analyzing this legal compliance request. Perform a structured analysis.
+        analysis_prompt = f"""You are a compliance gap detection specialist. Your ONLY job is to identify specific compliance gaps with strong logical reasoning.
 
 USER REQUEST:
 {user_message}
 
-PREVIOUS ANALYSIS:
+AVAILABLE DATA:
 {previous_analysis}
 
-ANALYSIS TASK:
-{action.details.get('description', 'Analyze the legal compliance aspects')}
+TASK: Identify compliance gaps ONLY. For each gap you detect:
+1. State the specific compliance gap (what's missing/wrong)
+2. Cite the exact regulation/law that requires it
+3. Explain the logical reasoning why this is a gap
+4. Assess risk level (HIGH/MEDIUM/LOW) with justification
 
-Perform a detailed analysis addressing:
-1. Key legal concepts mentioned
-2. Potential compliance issues identified
-3. Regulatory areas that need investigation
-4. Specific concerns or red flags
-5. What additional information is needed
+FORMAT:
+**COMPLIANCE GAP**: [Specific gap]
+**REGULATION**: [Exact law/regulation violated]  
+**REASONING**: [Why this is a gap - logical argument]
+**RISK**: [HIGH/MEDIUM/LOW] - [Why this risk level]
 
-Provide your analysis in structured format:"""
+Only report actual compliance gaps. Do not provide:
+- Implementation recommendations
+- Technical solutions  
+- Timelines or costs
+- Training suggestions
+- General advice
+
+Focus on detection and reasoning only:"""
         
+        # Use LLM client with user API keys if available
+        if agent_state.api_keys:
+            current_llm_client = create_llm_client(agent_state.api_keys)
+        else:
+            current_llm_client = llm_client
+            
         # Perform actual LLM analysis
-        response = await llm_client.complete(
+        response = await current_llm_client.complete(
             analysis_prompt,
             max_tokens=500,
             temperature=0.1
@@ -1203,10 +1321,40 @@ async def _execute_approved_mcp_call(session_id: str):
                 query=tool_decision["query"]
             )
         elif tool_decision["tool"] == "requirements_mcp":
-            result = await lawyer_agent.requirements_mcp.search_requirements(
-                search_type="semantic", 
-                query=tool_decision["query"]
-            )
+            # Parse query to determine search type
+            query = tool_decision["query"]
+            if "document_id:" in query:
+                # Extract document ID from query like "document_id:abc-123 full content analysis"
+                doc_id_match = re.search(r'document_id:([a-f0-9\-]+)', query)
+                if doc_id_match:
+                    document_id = doc_id_match.group(1)
+                    result = await lawyer_agent.requirements_mcp.search_requirements(
+                        search_type="metadata",
+                        document_id=document_id,
+                        max_results=10
+                    )
+                else:
+                    result = await lawyer_agent.requirements_mcp.search_requirements(
+                        search_type="semantic", 
+                        query=query
+                    )
+            elif "check_document_status" in query:
+                # Extract document ID for status check
+                doc_id_match = re.search(r'document_id:([a-f0-9\-]+)', query)
+                if doc_id_match:
+                    document_id = doc_id_match.group(1)
+                    result = await lawyer_agent.requirements_mcp.search_requirements(
+                        search_type="metadata",
+                        document_id=document_id,
+                        max_results=1
+                    )
+                else:
+                    result = {"error": "Invalid document status check format"}
+            else:
+                result = await lawyer_agent.requirements_mcp.search_requirements(
+                    search_type="semantic", 
+                    query=query
+                )
         else:
             logger.error(f"❌ Unknown MCP tool: {tool_decision['tool']}")
             return
@@ -1220,10 +1368,14 @@ async def _execute_approved_mcp_call(session_id: str):
             "execution_time": (datetime.now() - mcp_start).total_seconds()
         })
         
-        # Add to conversation history
+        # Add full MCP results to conversation history (don't truncate)
+        result_content = json.dumps(result, indent=2)
+        if len(result_content) > 10000:  # Only truncate if extremely large (>10k chars)
+            result_content = result_content[:9900] + "...\n[Content truncated - but full data available for analysis]"
+            
         agent_state.conversation_history.append({
             "role": "tool",
-            "content": f"MCP Tool {tool_decision['tool']} executed with result: {json.dumps(result, indent=2)[:200]}..."
+            "content": f"MCP Tool {tool_decision['tool']} executed successfully. Retrieved data:\n\n{result_content}"
         })
         
         # Record the MCP execution as reasoning step

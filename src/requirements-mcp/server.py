@@ -21,6 +21,7 @@ import mcp.server.stdio
 
 # FastAPI imports
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
@@ -307,21 +308,29 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
                     }
                 else:
                     # Return chunks from specific document
+                    logger.info(f"🔍 MCP searching for document: {document_id}")
                     conn = get_db_connection()
                     cursor = conn.cursor()
                     
-                    cursor.execute("""
+                    query = """
                         SELECT pl.chunk_content, pl.chunk_index, pl.metadata, p.filename
                         FROM pdfs p
                         JOIN processing_log pl ON p.id = pl.pdf_id
                         WHERE p.id = %s
                         ORDER BY pl.chunk_index
                         LIMIT %s
-                    """, (document_id, max_results))
+                    """
+                    logger.info(f"🔍 Executing query with document_id={document_id}, max_results={max_results}")
+                    
+                    cursor.execute(query, (document_id, max_results))
+                    rows = cursor.fetchall()
+                    
+                    logger.info(f"📊 Found {len(rows)} rows in database")
                     
                     doc_results = []
-                    for row in cursor.fetchall():
+                    for row in rows:
                         content, chunk_index, metadata, filename = row
+                        logger.info(f"  Processing chunk {chunk_index}: {content[:50]}...")
                         doc_results.append({
                             "chunk_id": f"{document_id}_chunk_{chunk_index}",
                             "content": content,
@@ -340,6 +349,8 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
                         "total_results": len(doc_results),
                         "search_time": 0.3
                     }
+                    
+                    logger.info(f"✅ MCP returning {len(doc_results)} results")
                     
             elif search_type == "bulk_retrieve":
                 limit = arguments.get("limit", 100)
@@ -534,7 +545,8 @@ async def search_documents(request: SearchRequest):
 @app.post("/api/v1/upload", response_model=UploadResponse)
 async def upload_document(
     file: UploadFile = File(...), 
-    document_type: str = Form(default="prd")
+    document_type: str = Form(default="prd"),
+    document_id: Optional[str] = Form(None)
 ):
     """Upload and process a requirements document"""
     start_time = time.time()
@@ -550,8 +562,11 @@ async def upload_document(
             # Assume text file
             text_content = file_content.decode('utf-8')
         
-        # Generate document ID
-        document_id = str(uuid.uuid4())
+        # Use provided document ID or generate new one
+        if document_id is None:
+            document_id = str(uuid.uuid4())
+        
+        logger.info(f"Processing document with ID: {document_id}")
         
         # Insert into PostgreSQL
         conn = get_db_connection()

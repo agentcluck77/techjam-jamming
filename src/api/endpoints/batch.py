@@ -390,6 +390,7 @@ async def start_bulk_legal_analysis(
 async def _process_bulk_requirements(job_id: str, requirements_doc_ids: List[str], legal_doc_ids: Optional[List[str]]) -> None:
     """Background task to process requirements documents against legal documents"""
     job = batch_jobs[job_id]
+    db_session = None
     
     try:
         db_session = next(db_manager.get_db_session())
@@ -447,10 +448,14 @@ async def _process_bulk_requirements(job_id: str, requirements_doc_ids: List[str
         job['status'] = 'failed'
         job['completion_time'] = datetime.now()
         job['errors'].append({'error': f"Bulk processing failed: {str(e)}"})
+    finally:
+        if db_session:
+            db_session.close()
 
 async def _process_bulk_legal(job_id: str, legal_doc_ids: List[str], requirements_doc_ids: Optional[List[str]]) -> None:
     """Background task to process legal documents against requirements documents"""
     job = batch_jobs[job_id]
+    db_session = None
     
     try:
         db_session = next(db_manager.get_db_session())
@@ -508,6 +513,9 @@ async def _process_bulk_legal(job_id: str, legal_doc_ids: List[str], requirement
         job['status'] = 'failed'
         job['completion_time'] = datetime.now()
         job['errors'].append({'error': f"Bulk processing failed: {str(e)}"})
+    finally:
+        if db_session:
+            db_session.close()
 
 def _generate_batch_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Generate summary statistics for batch results"""

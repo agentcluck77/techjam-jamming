@@ -1,7 +1,7 @@
 """
 Configuration management for the Geo-Regulation AI System
 """
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 import os
 
@@ -15,6 +15,14 @@ class Settings(BaseSettings):
     
     # Database
     database_url: str = "postgresql://user:password@localhost:5432/geolegal"
+    
+    # Legal MCP Database Configuration (for backwards compatibility)
+    db_host: Optional[str] = "localhost"
+    db_port: Optional[int] = 5432
+    db_name: Optional[str] = "geolegal"
+    db_user: Optional[str] = "user"
+    db_password: Optional[str] = "password"
+    root_path: Optional[str] = None
     
     # Application
     api_key: str = "demo-key-2025"
@@ -39,9 +47,10 @@ class Settings(BaseSettings):
     legal_mcp_url: str = "http://localhost:8010"
     requirements_mcp_url: str = "http://localhost:8011"
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=False
+    )
 
 # Global settings instance
 settings = Settings()

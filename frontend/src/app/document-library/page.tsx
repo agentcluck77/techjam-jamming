@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { useDocumentStore } from '@/lib/stores'
-import { getDocuments, startBulkRequirementsAnalysis, startBulkLegalAnalysis, getBatchJobStatus, getDocumentReport, exportReports } from '@/lib/api'
+import { getDocuments, startBulkRequirementsAnalysis, startBulkLegalAnalysis, getBatchJobStatus, getDocumentReport, exportReports, deleteDocument } from '@/lib/api'
 import { Document } from '@/lib/types'
 import { BookOpen, Search, Trash2, Download, Zap, FileText, Eye, RefreshCw } from 'lucide-react'
 
@@ -22,6 +22,8 @@ export default function DocumentLibrary() {
   const [selectedReport, setSelectedReport] = useState<any>(null)
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false)
   const [rerunningDocuments, setRerunningDocuments] = useState<Set<string>>(new Set())
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
 
   useEffect(() => {
     const loadDocuments = async () => {
@@ -198,6 +200,7 @@ export default function DocumentLibrary() {
       return
     }
     
+    setIsExporting(true)
     try {
       const blob = await exportReports(reportIds, 'csv')
       const url = window.URL.createObjectURL(blob)
@@ -210,6 +213,39 @@ export default function DocumentLibrary() {
       document.body.removeChild(a)
     } catch (error) {
       console.error('Failed to export reports:', error)
+      alert('Failed to export reports. Please try again.')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handleDeleteDocuments = async () => {
+    if (selectedDocs.length === 0) return
+
+    const confirmed = window.confirm(
+      `Are you sure you want to delete ${selectedDocs.length} document${selectedDocs.length > 1 ? 's' : ''}? This action cannot be undone.`
+    )
+    
+    if (!confirmed) return
+
+    setIsDeleting(true)
+    try {
+      // Delete documents one by one
+      for (const docId of selectedDocs) {
+        await deleteDocument(docId)
+      }
+      
+      // Refresh the documents list
+      const docs = await getDocuments()
+      setDocuments(docs)
+      setSelectedDocs([])
+      
+      console.log('Documents deleted successfully')
+    } catch (error) {
+      console.error('Failed to delete documents:', error)
+      alert('Failed to delete documents. Please try again.')
+    } finally {
+      setIsDeleting(false)
     }
   }
   
@@ -390,13 +426,23 @@ export default function DocumentLibrary() {
                     <Search className="w-4 h-4 mr-2" />
                     Bulk Compliance Check
                   </Button>
-                  <Button variant="outline" size="sm">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    disabled={selectedDocs.length === 0 || isDeleting}
+                    onClick={handleDeleteDocuments}
+                  >
                     <Trash2 className="w-4 h-4 mr-2" />
-                    Delete
+                    {isDeleting ? 'Deleting...' : 'Delete'}
                   </Button>
-                  <Button variant="outline" size="sm">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    disabled={selectedDocs.length === 0 || isExporting}
+                    onClick={handleExportReports}
+                  >
                     <Download className="w-4 h-4 mr-2" />
-                    Export
+                    {isExporting ? 'Exporting...' : 'Export'}
                   </Button>
                 </div>
               )}
@@ -542,12 +588,12 @@ export default function DocumentLibrary() {
                   Export compliance reports (CSV/JSON) - {Object.keys(documentReports).filter(id => selectedDocs.includes(id)).length} reports available
                 </p>
                 <Button 
-                  disabled={selectedDocs.length === 0}
+                  disabled={selectedDocs.length === 0 || isExporting}
                   onClick={handleExportReports}
                   variant="outline" 
                   size="sm"
                 >
-                  Export
+                  {isExporting ? 'Exporting...' : 'Export'}
                 </Button>
               </div>
             </div>

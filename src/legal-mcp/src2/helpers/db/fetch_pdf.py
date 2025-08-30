@@ -8,8 +8,8 @@ root_path = os.getenv("ROOT_PATH")
 # Add the project root directory to Python path
 sys.path.insert(0, root_path)
 
-from postgres.src2.helpers.db.pdf_parser import parse_pdf
-from postgres.src2.helpers.laws.llm_service import cleaner_llm
+from helpers.db.pdf_parser import parse_pdf
+from helpers.laws.llm_service import cleaner_llm
 import json
 
 async def clean(text: str) -> str:
