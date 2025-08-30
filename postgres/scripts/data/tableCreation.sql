@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS techjam.t_law_{{region}}_regulations (
     regulations TEXT,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-CONSTRAINT unique_law_id UNIQUE (law_id)
+CONSTRAINT unique_law_id_{{region}} UNIQUE (law_id)
 );
 
 -- Create law definitions table for each location
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS techjam.t_law_{{region}}_definitions (
     definitions TEXT,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-CONSTRAINT unique_statute_region UNIQUE (statute, region)
+CONSTRAINT unique_statute_{{region}} UNIQUE (statute, region)
 );
 
 -- Create PRD table for all PRDs
