@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { getKnowledgeBase, updateKnowledgeBase } from '@/lib/api'
+import { Edit, Settings, Search, BookOpen, BarChart3, Brain } from 'lucide-react'
 
 export default function KnowledgeBase() {
   const [content, setContent] = useState('')
@@ -143,7 +144,8 @@ export default function KnowledgeBase() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              🧠 Agent Knowledge Base
+              <Brain className="w-5 h-5 mr-2" />
+              Agent Knowledge Base
             </h1>
             <p className="text-gray-600 mt-2">
               Customize lawyer agent domain expertise
@@ -167,9 +169,6 @@ export default function KnowledgeBase() {
             <Button variant="outline" size="sm" onClick={toggleHelp}>
               Help
             </Button>
-            <Button variant="outline" size="sm" onClick={toggleHelp}>
-              ?
-            </Button>
           </div>
         </div>
 
@@ -178,7 +177,8 @@ export default function KnowledgeBase() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                📝 Customize Agent Expertise
+                <Edit className="w-5 h-5 mr-2" />
+                Customize Agent Expertise
               </h2>
               <div className="text-sm text-gray-500">
                 {hasChanges && (
@@ -211,7 +211,8 @@ export default function KnowledgeBase() {
         <Card className="bg-white">
           <CardHeader>
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              🔧 Quick Add Sections
+              <Settings className="w-5 h-5 mr-2" />
+              Quick Add Sections
             </h2>
           </CardHeader>
           <CardContent>
@@ -266,7 +267,8 @@ export default function KnowledgeBase() {
         <Card className="bg-white">
           <CardHeader>
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              🔍 How This Enhances Analysis
+              <Search className="w-5 h-5 mr-2" />
+              How This Enhances Analysis
             </h2>
           </CardHeader>
           <CardContent>
@@ -287,7 +289,10 @@ export default function KnowledgeBase() {
         <Dialog open={showHelp} onOpenChange={setShowHelp}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle>📖 Knowledge Base Help</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                <BookOpen className="w-5 h-5" />
+                Knowledge Base Help
+              </DialogTitle>
               <DialogDescription>
                 Learn how to customize your agent's expertise
               </DialogDescription>
@@ -332,7 +337,10 @@ export default function KnowledgeBase() {
         <Dialog open={showPreview} onOpenChange={setShowPreview}>
           <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>🔍 Enhanced Prompt Preview</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                <Search className="w-5 h-5" />
+                Enhanced Prompt Preview
+              </DialogTitle>
               <DialogDescription>
                 See how your knowledge base content enhances AI analysis
               </DialogDescription>
@@ -366,7 +374,10 @@ export default function KnowledgeBase() {
               </div>
               
               <div className="bg-amber-50 p-4 rounded-lg border">
-                <h3 className="font-semibold text-amber-900 mb-2">📊 Enhancement Benefits</h3>
+                <h3 className="font-semibold text-amber-900 mb-2 flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4" />
+                  Enhancement Benefits
+                </h3>
                 <ul className="text-amber-800 text-sm space-y-1">
                   <li>• <strong>Domain Expertise:</strong> TikTok-specific terminology and context</li>
                   <li>• <strong>Regulatory Awareness:</strong> Jurisdiction-specific requirements</li>

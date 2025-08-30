@@ -3,13 +3,14 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
+import { CheckSquare, Building, BookOpen, Brain, BarChart3 } from 'lucide-react'
 
 const navigationItems = [
-  { href: '/', label: 'Requirements Check', icon: '📋' },
-  { href: '/legal-documents', label: 'Legal Documents', icon: '🏛️' },
-  { href: '/document-library', label: 'Document Library', icon: '📚' },
-  { href: '/knowledge-base', label: 'Knowledge Base', icon: '🧠' },
-  { href: '/results', label: 'Results History', icon: '📊' },
+  { href: '/', label: 'Requirements Check', icon: CheckSquare },
+  { href: '/legal-documents', label: 'Legal Documents', icon: Building },
+  { href: '/document-library', label: 'Document Library', icon: BookOpen },
+  { href: '/knowledge-base', label: 'Knowledge Base', icon: Brain },
+  { href: '/results', label: 'Results History', icon: BarChart3 },
 ]
 
 export function Navigation() {
@@ -18,8 +19,9 @@ export function Navigation() {
   return (
     <nav className="fixed left-0 top-0 h-full w-64 bg-white border-r border-gray-200 p-4">
       <div className="mb-8">
-        <h1 className="text-xl font-bold text-gray-900">
-          🏛️ TikTok Geo-Regulation AI
+        <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+          <Building className="w-6 h-6" />
+          TikTok Geo-Regulation AI
         </h1>
         <p className="text-sm text-gray-600 mt-1">
           Compliance Analysis System
@@ -42,7 +44,7 @@ export function Navigation() {
                     : 'text-gray-700 hover:bg-gray-100'
                 )}
               >
-                <span className="text-lg">{item.icon}</span>
+                <item.icon className="w-5 h-5" />
                 {item.label}
               </Link>
             </li>

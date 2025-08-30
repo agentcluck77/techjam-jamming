@@ -15,7 +15,6 @@ class Settings(BaseSettings):
     
     # Database
     database_url: str = "postgresql://user:password@localhost:5432/geolegal"
-    redis_url: str = "redis://localhost:6379/0"
     
     # Application
     api_key: str = "demo-key-2025"
@@ -24,15 +23,10 @@ class Settings(BaseSettings):
     
     # Performance
     max_concurrent_analyses: int = 10
-    cache_ttl_seconds: int = 3600
     llm_timeout_seconds: int = 30
     
-    # Feature Flags - Team Members will enable these
-    enable_caching: bool = False
-    enable_real_mcps: bool = False
+    # Feature Flags - Streamlined for hackathon scope  
     enable_batch_processing: bool = False
-    enable_workflow_viz: bool = False
-    enable_pdf_processing: bool = False
     
     # MCP Service URLs - Original architecture
     utah_mcp_url: str = "http://localhost:8010"

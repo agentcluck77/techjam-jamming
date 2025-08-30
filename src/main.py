@@ -2,8 +2,9 @@
 FastAPI Main Application - Phase 1B Implementation
 Main entry point for the Geo-Regulation AI System API
 """
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from datetime import datetime
 import logging
@@ -29,13 +30,10 @@ async def lifespan(app: FastAPI):
     """Application lifespan events"""
     logger.info("Starting Geo-Regulation AI System")
     logger.info(f"Environment: {settings.environment}")
-    logger.info(f"Feature flags - Caching: {settings.enable_caching}, Real MCPs: {settings.enable_real_mcps}")
+    logger.info(f"Feature flags - Batch Processing: {settings.enable_batch_processing}")
     
-    # TODO: Team Member 1 - Initialize caching and MCP clients
-    # if settings.enable_caching:
-    #     await initialize_redis()
-    # if settings.enable_real_mcps:
-    #     await initialize_mcp_clients()
+    # TODO: Team Member - Initialize MCP clients (always real MCPs now)
+    # await initialize_mcp_clients()
     
     yield
     
@@ -72,7 +70,8 @@ async def health_check():
         services={
             "workflow_orchestrator": "healthy",
             "json_refactorer": "healthy",
-            "mock_mcps": "healthy"
+            "legal_mcp": "healthy",
+            "requirements_mcp": "healthy"
         }
     )
     
@@ -82,9 +81,9 @@ async def health_check():
     #         await check_redis_health()
     #         health_status.services["redis"] = "healthy"
     #     
-    #     if settings.enable_real_mcps:
-    #         mcp_health = await check_mcp_services()
-    #         health_status.services.update(mcp_health)
+    #     # Always check MCP services (no feature flag needed)
+    #     mcp_health = await check_mcp_services()
+    #     health_status.services.update(mcp_health)
     # except Exception as e:
     #     health_status.status = "degraded"
     #     health_status.services["error"] = str(e)
@@ -254,18 +253,13 @@ async def get_metrics():
         "timestamp": datetime.now(),
         "system_status": "operational",
         "feature_flags": {
-            "caching_enabled": settings.enable_caching,
-            "real_mcps_enabled": settings.enable_real_mcps,
-            "batch_processing_enabled": settings.enable_batch_processing,
-            "workflow_viz_enabled": settings.enable_workflow_viz
+            "real_mcps_enabled": True,  # Always true - no mock fallbacks
+            "batch_processing_enabled": settings.enable_batch_processing
         },
         "phase": "1B - Basic Implementation"
     }
     
-    # TODO: Team Member 1 - Add detailed metrics
-    # if settings.enable_caching:
-    #     basic_metrics["cache_stats"] = await get_cache_statistics()
-    # 
+    # TODO: Team Member - Add detailed metrics
     # basic_metrics["performance"] = {
     #     "avg_analysis_time": await get_avg_analysis_time(),
     #     "requests_per_minute": await get_request_rate(),
@@ -306,33 +300,47 @@ if settings.environment == "development":
         refactorer = JSONRefactorer()
         return refactorer.terminology
     
-    @app.get("/api/v1/dev/mock-responses")
-    async def get_mock_responses():
-        """Development endpoint to view mock MCP responses"""
-        from .core.agents.mock_mcps import MockMCPClient
-        mock_client = MockMCPClient()
-        return mock_client.mock_responses
+    @app.get("/api/v1/dev/mcp-status")
+    async def get_mcp_status():
+        """Development endpoint to check MCP server status"""
+        from .services.mcp_client import MCPSearchClient
+        mcp_client = MCPSearchClient()
+        return await mcp_client.health_check_all_services()
+
+# Include API endpoints for frontend integration
+from .api.endpoints import hitl, document_management, results, legal_chat
+
+app.include_router(hitl.router)
+app.include_router(document_management.router)
+app.include_router(results.router)
+app.include_router(legal_chat.router)
 
 # Error handlers
 @app.exception_handler(HTTPException)
-async def http_exception_handler(request, exc):
+async def http_exception_handler(request: Request, exc: HTTPException):
     """Standard HTTP exception handler"""
-    return {
-        "error_code": "HTTP_ERROR",
-        "message": exc.detail,
-        "status_code": exc.status_code,
-        "timestamp": datetime.now()
-    }
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error_code": "HTTP_ERROR",
+            "message": exc.detail,
+            "status_code": exc.status_code,
+            "timestamp": datetime.now().isoformat()
+        }
+    )
 
 @app.exception_handler(Exception)
-async def general_exception_handler(request, exc):
+async def general_exception_handler(request: Request, exc: Exception):
     """General exception handler for unexpected errors"""
     logger.error(f"Unexpected error: {str(exc)}")
-    return {
-        "error_code": "INTERNAL_ERROR",
-        "message": "An unexpected error occurred. Please try again.",
-        "timestamp": datetime.now()
-    }
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error_code": "INTERNAL_ERROR",
+            "message": "An unexpected error occurred. Please try again.",
+            "timestamp": datetime.now().isoformat()
+        }
+    )
 
 if __name__ == "__main__":
     import uvicorn

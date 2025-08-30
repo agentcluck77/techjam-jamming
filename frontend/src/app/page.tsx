@@ -8,6 +8,7 @@ import { useWorkflow } from '@/hooks/use-workflow'
 import { useDocumentStore } from '@/lib/stores'
 import { getRecentDocuments } from '@/lib/api'
 import { Document } from '@/lib/types'
+import { CheckSquare, Clock, Settings, CheckCircle, Loader2, FileText } from 'lucide-react'
 
 export default function RequirementsCheck() {
   const [recentUploads, setRecentUploads] = useState<Document[]>([])
@@ -61,7 +62,8 @@ export default function RequirementsCheck() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              📋 Requirements Compliance Check
+              <CheckSquare className="w-8 h-8" />
+              Requirements Compliance Check
             </h1>
             <p className="text-gray-600 mt-2">
               Streamlined requirements PDF compliance checking
@@ -70,7 +72,9 @@ export default function RequirementsCheck() {
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm">Recent</Button>
             <Button variant="outline" size="sm">Help</Button>
-            <Button variant="outline" size="sm">⚙️</Button>
+            <Button variant="outline" size="sm">
+              <Settings className="w-4 h-4" />
+            </Button>
           </div>
         </div>
 
@@ -90,7 +94,8 @@ export default function RequirementsCheck() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                🕒 Recent Compliance Checks
+                <Clock className="w-5 h-5" />
+                Recent Compliance Checks
               </h2>
               <Button variant="ghost" size="sm">
                 View All →
@@ -122,9 +127,22 @@ export default function RequirementsCheck() {
                           ? 'bg-blue-100 text-blue-700'
                           : 'bg-gray-100 text-gray-700'
                       }`}>
-                        {doc.status === 'analyzed' ? '✅ Analyzed' : 
-                         doc.status === 'processing' ? '🔄 Processing' : 
-                         '📋 Pending'}
+                        {doc.status === 'analyzed' ? (
+                          <span className="flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3" />
+                            Analyzed
+                          </span>
+                        ) : doc.status === 'processing' ? (
+                          <span className="flex items-center gap-1">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Processing
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1">
+                            <FileText className="w-3 h-3" />
+                            Pending
+                          </span>
+                        )}
                       </span>
                     </div>
                     <div className="flex items-center gap-4">

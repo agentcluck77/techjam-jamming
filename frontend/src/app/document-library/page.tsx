@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useDocumentStore } from '@/lib/stores'
 import { getDocuments } from '@/lib/api'
 import { Document } from '@/lib/types'
+import { BookOpen, Search, FolderOpen, Trash2, Download, Zap } from 'lucide-react'
 
 export default function DocumentLibrary() {
   const [documents, setDocuments] = useState<Document[]>([])
@@ -86,7 +87,8 @@ export default function DocumentLibrary() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              📚 Document Library
+              <BookOpen className="w-8 h-8" />
+              Document Library
             </h1>
             <p className="text-gray-600 mt-2">
               Unified document management and organization
@@ -150,10 +152,22 @@ export default function DocumentLibrary() {
                   <span className="text-sm text-gray-600">
                     {selectedDocs.length} selected
                   </span>
-                  <Button size="sm">🔍 Bulk Compliance Check</Button>
-                  <Button variant="outline" size="sm">🗂️ Move to Folder</Button>
-                  <Button variant="outline" size="sm">🗑️ Delete</Button>
-                  <Button variant="outline" size="sm">📤 Export</Button>
+                  <Button size="sm">
+                    <Search className="w-4 h-4 mr-2" />
+                    Bulk Compliance Check
+                  </Button>
+                  <Button variant="outline" size="sm">
+                    <FolderOpen className="w-4 h-4 mr-2" />
+                    Move to Folder
+                  </Button>
+                  <Button variant="outline" size="sm">
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete
+                  </Button>
+                  <Button variant="outline" size="sm">
+                    <Download className="w-4 h-4 mr-2" />
+                    Export
+                  </Button>
                 </div>
               )}
             </div>
@@ -228,7 +242,8 @@ export default function DocumentLibrary() {
         <Card className="bg-white">
           <CardHeader>
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              🚀 Bulk Operations
+              <Zap className="w-5 h-5 mr-2" />
+              Bulk Operations
             </h2>
           </CardHeader>
           <CardContent>

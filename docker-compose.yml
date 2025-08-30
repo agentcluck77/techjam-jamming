@@ -21,81 +21,85 @@ services:
       timeout: 10s
       retries: 3
 
-  # Redis Cache (for Team Member 1)
-  redis:
-    image: redis:7-alpine
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
 
-  # Main Application Container
-  app:
+  # Main Application Container (renamed to backend for clarity)
+  backend:
     build: .
     ports:
-      - "8000:8000"  # FastAPI
-      - "8501:8501"  # Streamlit
+      - "8000:8000"  # FastAPI only
     environment:
       - DATABASE_URL=postgresql://user:password@postgres:5432/geolegal
-      - REDIS_URL=redis://redis:6379/0
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - API_KEY=demo-key-2025
       - LOG_LEVEL=INFO
       - ENVIRONMENT=development
-      # Phase 1 feature flags
-      - ENABLE_CACHING=false
-      - ENABLE_REAL_MCPS=false
+      # Streamlined feature flags
       - ENABLE_BATCH_PROCESSING=false
-      - ENABLE_WORKFLOW_VIZ=false
+      # MCP Service URLs
+      - LEGAL_MCP_URL=http://legal-mcp:8010
+      - REQUIREMENTS_MCP_URL=http://requirements-mcp:8011
+      - MCP_TIMEOUT_SECONDS=30
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
+      legal-mcp:
+        condition: service_healthy
+      requirements-mcp:
         condition: service_healthy
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
     restart: unless-stopped
 
-  # TODO: Legal MCP Team - Add legal MCP service when ready
-  # legal-mcp:
-  #   build:
-  #     context: ./src/legal-mcp
-  #     dockerfile: Dockerfile
-  #   ports:
-  #     - "8010:8000"
-  #   environment:
-  #     - LOG_LEVEL=INFO
-  #     - CHROMA_HOST=legal-chroma
-  #     - CHROMA_PORT=8000
-  #   depends_on:
-  #     - legal-chroma
-  #   volumes:
-  #     - ./src/legal-mcp/data:/app/data
+  # Legal MCP Service - Real functional implementation
+  legal-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uv run python src/legal-mcp/server.py http
+    ports:
+      - "8010:8010"
+    environment:
+      - LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
 
-  # TODO: Requirements MCP Team - Add requirements MCP service when ready  
-  # requirements-mcp:
-  #   build:
-  #     context: ./src/requirements-mcp
-  #     dockerfile: Dockerfile
-  #   ports:
-  #     - "8011:8000"
-  #   environment:
-  #     - LOG_LEVEL=INFO
-  #     - CHROMA_HOST=requirements-chroma
-  #     - CHROMA_PORT=8000
-  #   depends_on:
-  #     - requirements-chroma
-  #   volumes:
-  #     - ./src/requirements-mcp/data:/app/data
+  # Requirements MCP Service - Real functional implementation
+  requirements-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uv run python src/requirements-mcp/server.py http
+    ports:
+      - "8011:8011"
+    environment:
+      - LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8011/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
 
   # TODO: Legal MCP Team - ChromaDB for legal documents
   # legal-chroma:
@@ -121,7 +125,6 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
   # legal_chroma_data:  # Uncomment when Legal MCP team is ready
   # requirements_chroma_data:  # Uncomment when Requirements MCP team is ready
 

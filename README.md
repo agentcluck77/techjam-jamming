@@ -8,83 +8,123 @@ Multi-agent AI system for TikTok compliance analysis across global jurisdictions
 
 ## 🚀 Quick Start
 
-### Option 1: Docker (Recommended)
+### Option 1: Docker (Recommended) - Complete System
 ```bash
 # 1. Setup environment
 git clone <repository> && cd techjam-jamming
 cp .env.template .env
 
 # 2. Add API key to .env (any one works)
-# GOOGLE_API_KEY=your_key  # FREE tier available
-# ANTHROPIC_API_KEY=your_key
-# OPENAI_API_KEY=your_key
+# Edit .env file and replace 'your_google_key_here' with actual key
+# GOOGLE_API_KEY=your_actual_google_key  # FREE tier available
+# ANTHROPIC_API_KEY=your_actual_anthropic_key
+# OPENAI_API_KEY=your_actual_openai_key
 
-# 3. Start system
+# 3. Start complete system (Frontend + Backend + Database + MCPs)
 docker-compose up -d
 
 # 4. Access
-# - UI: http://localhost:8501
-# - API: http://localhost:8000
-# - Docs: http://localhost:8000/docs
+# - 🎨 Frontend: http://localhost:3000        (Next.js + shadcn/ui)
+# - 🔧 Backend API: http://localhost:8000     (FastAPI)
+# - 📚 API Docs: http://localhost:8000/docs   (Swagger)
+# - ⚖️ Legal MCP: http://localhost:8010       (Mock Legal MCP)
+# - 📋 Requirements MCP: http://localhost:8011 (Mock Requirements MCP)
 ```
 
-### Option 2: Local Development with uv
+### Option 2: Local Development - Full Stack
 ```bash
 # 1. Setup environment
 git clone <repository> && cd techjam-jamming
 cp .env.template .env
 
-# 2. Install uv (if not already installed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# 2. Add API key to .env (any one works)
+# Edit .env file and replace 'your_google_key_here' with actual key
+# GOOGLE_API_KEY=your_actual_google_key  # FREE tier available
+# ANTHROPIC_API_KEY=your_actual_anthropic_key
+# OPENAI_API_KEY=your_actual_openai_key
 
-# 3. Install dependencies
+# 3. Start backend dependencies + MCPs
+docker-compose up -d postgres legal-mcp requirements-mcp
+
+# 4. Install and run backend (Python)
+pip install uv  # or curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
-
-# 4. Add API key to .env (any one works)
-# GOOGLE_API_KEY=your_key  # FREE tier available
-# ANTHROPIC_API_KEY=your_key
-# OPENAI_API_KEY=your_key
-
-# 5. Start PostgreSQL (required)
-docker-compose up -d postgres
-
-# 6. Run the application
 uv run python -m src.main
 
-# 7. In another terminal, run the UI
-uv run streamlit run src/ui/app.py
+# 5. Install and run frontend (Node.js)
+cd frontend
+npm install
+npm run dev
 
-# 8. Access
-# - UI: http://localhost:8501
-# - API: http://localhost:8000
-# - Docs: http://localhost:8000/docs
+# 6. Access
+# - 🎨 Frontend: http://localhost:3000         (Next.js + shadcn/ui)
+# - 🔧 Backend API: http://localhost:8000      (FastAPI)
+# - ⚖️ Legal MCP: http://localhost:8010        (Mock Legal MCP) 
+# - 📋 Requirements MCP: http://localhost:8011  (Mock Requirements MCP)
+```
+
+### Option 3: MCP Services Only (for MCP development/testing)
+```bash
+# Start just the MCP services for testing
+docker-compose up -d legal-mcp requirements-mcp
+
+# Or run MCPs locally
+uv run python src/legal-mcp/server.py http      # Port 8010
+uv run python src/requirements-mcp/server.py http  # Port 8011
+
+# Test MCP endpoints
+curl http://localhost:8010/health    # Legal MCP
+curl http://localhost:8011/health    # Requirements MCP
+```
+
+### Option 4: Frontend Only (for UI development)
+```bash
+cd frontend
+npm install
+npm run dev
+
+# Access: http://localhost:3000
+# Note: Backend must be running for full functionality
 ```
 
 ---
 
 ## 👥 Team Assignments
 
-### 🔍 **Legal MCP Team** (Lucas & Vivian)
-**Deliverable**: Unified Legal Search Service
+### ✅ **Mock MCP Services** - COMPLETED
+**Status**: Mock Legal and Requirements MCPs implemented and integrated
 
-### 📋 **Requirements MCP Team** (Tingli & JunHao) 
-**Deliverable**: Requirements Document Search Service
+Current Implementation:
+- ✅ **Legal MCP**: Mock service on port 8010 with hardcoded legal documents
+- ✅ **Requirements MCP**: Mock service on port 8011 with hardcoded requirements  
+- ✅ **Docker Integration**: Both MCPs containerized and orchestrated
+- ✅ **Backend Integration**: Main system treats mock MCPs as real services
+- ✅ **Health Checks**: Monitoring and service discovery working
 
-#### Your Files
+### 🔍 **Legal MCP Team** (Lucas & Vivian) - AVAILABLE FOR ASSIGNMENT
+**Deliverable**: Replace mock Legal MCP with real ChromaDB implementation
+
+### 📋 **Requirements MCP Team** (Tingli & JunHao) - AVAILABLE FOR ASSIGNMENT
+**Deliverable**: Replace mock Requirements MCP with real ChromaDB implementation
+
+#### Legal MCP Files (Ready for Enhancement)
 ```
 src/legal-mcp/                 # YOUR DOMAIN
-├── main.py                    # FastAPI MCP service
-├── search_service.py          # Semantic search implementation
-├── chroma_client.py           # ChromaDB integration
-├── models.py                  # Request/response models
-└── data/                      # Legal documents (all jurisdictions)
+├── server.py                  # ✅ Mock FastAPI MCP service (REPLACE with real implementation)
+├── README.md                  # ✅ Documentation and setup instructions
+├── legal-endpoints.md         # ✅ API specification to follow
+└── HI.md                      # Placeholder file
+
+# ADD THESE FOR REAL IMPLEMENTATION:
+├── search_service.py          # TODO: Semantic search implementation
+├── chroma_client.py           # TODO: ChromaDB integration
+├── models.py                  # TODO: Request/response models
+└── data/                      # TODO: Legal documents (all jurisdictions)
     ├── utah/                  # Utah Social Media Act
     ├── eu/                    # EU DSA + GDPR
     ├── california/            # COPPA/CCPA
     ├── florida/               # Minor Protection Act
     └── brazil/                # LGPD + Data Localization
-
-docker-compose.yml             # Add unified MCP service
 ```
 
 #### Required API
@@ -99,21 +139,24 @@ GET /health                   # Health check
 # Full specs: docs/MCP.md
 ```
 
-#### Your Files
+#### Requirements MCP Files (Ready for Enhancement)
 ```
 src/requirements-mcp/          # YOUR DOMAIN
-├── main.py                    # FastAPI MCP service
-├── search_service.py          # Document search implementation
-├── chroma_client.py           # ChromaDB integration
-├── models.py                  # Request/response models
-├── upload_service.py          # PDF/text document upload handler
-└── data/                      # Requirements documents
+├── server.py                  # ✅ Mock FastAPI MCP service (REPLACE with real implementation)
+├── README.md                  # ✅ Documentation and setup instructions  
+├── requirements-endpoints.md  # ✅ API specification to follow
+└── hi.md                      # Placeholder file
+
+# ADD THESE FOR REAL IMPLEMENTATION:
+├── search_service.py          # TODO: Document search implementation
+├── chroma_client.py           # TODO: ChromaDB integration
+├── models.py                  # TODO: Request/response models
+├── upload_service.py          # TODO: PDF/text document upload handler
+└── data/                      # TODO: Requirements documents
     ├── prds/                  # Product Requirements Documents
     ├── technical_specs/       # Technical specifications
     ├── features/              # Feature specifications
     └── user_stories/          # User story documents
-
-docker-compose.yml             # Add requirements MCP service
 ```
 
 #### Required API
@@ -306,6 +349,44 @@ graph TB
 
 ---
 
+## 🎨 NEW: Professional Frontend (Next.js + shadcn/ui)
+
+**Status**: ✅ **COMPLETED** - Production-ready professional interface
+
+### Modern UI Features
+- **5 Professional Pages**: Requirements Check, Legal Documents, Document Library, Knowledge Base, Results History
+- **Real-time Updates**: Server-Sent Events (SSE) for workflow progress tracking
+- **HITL Integration**: Cursor-style sidebar for human-in-the-loop interactions
+- **Document Management**: Professional drag & drop upload with progress indicators
+- **Advanced Features**: Unified document library, bulk operations, export capabilities
+- **Responsive Design**: Desktop-optimized professional interface with shadcn/ui components
+
+### Tech Stack
+- **Framework**: Next.js 14+ with App Router
+- **UI Library**: shadcn/ui (Radix UI + Tailwind CSS)  
+- **State Management**: Zustand for client state
+- **Real-time**: Server-Sent Events (SSE) for progress updates
+- **File Upload**: react-dropzone for drag & drop
+- **TypeScript**: Full type safety throughout
+- **Docker**: Production-ready containerization
+
+### Primary User Flow (80% Use Case)
+```
+1. Drop requirements PDF → 2. Upload & extract → 3. HITL sidebar → 4. Results
+```
+
+The frontend seamlessly integrates with all existing backend APIs and provides a modern alternative to the Streamlit interface while maintaining full backward compatibility.
+
+**Demo Ready**: Complete end-to-end workflows with mock data and professional polish.
+
+### Architecture Cleanup ✅
+- **Removed Redis**: Unused caching layer eliminated for hackathon focus
+- **Streamlit UI Archived**: Legacy UI moved to `archive/streamlit_ui/`  
+- **Streamlined Dependencies**: Faster builds, simpler deployment
+- **Single Frontend**: Next.js provides superior professional experience
+
+---
+
 ## ✅ Current Features (Working)
 
 - **Universal API**: Single `/api/v1/process` endpoint handles any input
@@ -314,8 +395,9 @@ graph TB
 - **🧠 Intelligent LLM Parsing**: No hardcoded string matching - handles abbreviations, synonyms, context
 - **LLM Integration**: Google Gemini with model switching + retry logic
 - **5 Jurisdictions**: Utah, EU, California, Florida, Brazil
-- **Docker Deploy**: Single-command setup
-- **Modern Stack**: FastAPI + Streamlit + PostgreSQL
+- **✅ Real MCP Integration**: Mock Legal + Requirements MCPs integrated as production services
+- **Docker Deploy**: Single-command setup with full MCP orchestration
+- **Modern Stack**: Next.js + FastAPI + PostgreSQL + Mock MCPs
 
 ---
 
@@ -355,6 +437,7 @@ async def _parse_jurisdictions_with_llm(self, user_response: str, available_juri
 
 ## 🧪 Testing
 
+### Legacy API Endpoints
 ```bash
 # Feature Analysis
 curl -X POST http://localhost:8000/api/v1/process \
@@ -368,6 +451,73 @@ curl -X POST http://localhost:8000/api/v1/process \
 
 # Health Check
 curl http://localhost:8000/api/v1/health
+```
+
+### NEW: Frontend API Endpoints
+```bash
+# Document Upload
+curl -X POST http://localhost:8000/api/documents/upload \
+  -F "file=@test.pdf" \
+  -F "doc_type=requirements"
+
+# Get Documents
+curl http://localhost:8000/api/documents
+
+# Start Workflow
+curl -X POST http://localhost:8000/api/workflow/start \
+  -H "Content-Type: application/json" \
+  -d '{"workflow_type": "workflow_3", "document_id": "doc-123"}'
+
+# Get Results
+curl http://localhost:8000/api/results
+
+# Real Legal MCP (Mock Implementation)
+curl http://localhost:8010/health
+curl -X POST http://localhost:8010/api/v1/bulk_retrieve \
+  -H "Content-Type: application/json" \
+  -d '{"include_content": true}'
+
+# Real Requirements MCP (Mock Implementation)
+curl http://localhost:8011/health  
+curl -X POST http://localhost:8011/api/v1/bulk_retrieve \
+  -H "Content-Type: application/json" \
+  -d '{"format": "structured"}'
+```
+
+### Frontend Testing
+```bash
+# Visit the modern UI
+open http://localhost:3000
+
+# Test workflow: Upload requirements PDF → HITL sidebar → Results
+# Test document library: Browse and manage documents
+# Test knowledge base: Edit agent expertise
+```
+
+### Code Changes & Restart
+```bash
+# Frontend changes only (fastest)
+docker-compose restart frontend
+
+# Backend changes only
+docker-compose restart backend
+
+# Both frontend + backend changes
+docker-compose restart frontend backend
+
+# Major changes (dependencies, Dockerfile)
+docker-compose down
+docker-compose up -d --build
+
+# Database schema changes (resets DB)
+docker-compose down -v
+docker-compose up -d --build
+
+# Development mode (faster iteration)
+# Run database in Docker, services locally
+docker-compose up -d postgres
+cd frontend && npm run dev          # Frontend: http://localhost:3000
+uv run python -m src.main          # Backend: http://localhost:8000
 ```
 
 ---

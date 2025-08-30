@@ -10,7 +10,7 @@ import json
 import re
 
 from ..models import JurisdictionAnalysis, FeatureAnalysisResponse, UserQueryResponse
-from .mock_mcps import MockMCPClient
+from .real_mcp_client import RealMCPClient
 from ..llm_service import llm_client
 
 class LawyerAgent:
@@ -22,8 +22,8 @@ class LawyerAgent:
     
     def __init__(self, mcp_client=None):
         # Use dependency injection for easy testing and team member enhancement
-        # If mcp_client is None, MCP functionality is disabled (no mock responses)
-        self.mcp_client = mcp_client
+        # If mcp_client is None, create real MCP client
+        self.mcp_client = mcp_client if mcp_client is not None else RealMCPClient()
         self.max_llm_retries = 3  # Maximum retries for LLM parsing
     
     async def process_request(self, request_data: Dict[str, Any], request_type: str):

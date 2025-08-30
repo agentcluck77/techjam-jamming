@@ -9,6 +9,7 @@ import { useWorkflow } from '@/hooks/use-workflow'
 import { useDocumentStore } from '@/lib/stores'
 import { getDocuments } from '@/lib/api'
 import { Document } from '@/lib/types'
+import { Building, Upload, FileText, Loader2, CheckCircle, Search, Trash2, RotateCcw } from 'lucide-react'
 
 export default function LegalDocuments() {
   const [legalDocuments, setLegalDocuments] = useState<Document[]>([])
@@ -58,11 +59,11 @@ export default function LegalDocuments() {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'analyzed': return '✅'
-      case 'stored': return '✅'
-      case 'processing': return '🔄'
-      case 'pending': return '📋'
-      default: return '📋'
+      case 'analyzed': return <CheckCircle className="w-4 h-4" />
+      case 'stored': return <CheckCircle className="w-4 h-4" />
+      case 'processing': return <Loader2 className="w-4 h-4 animate-spin" />
+      case 'pending': return <FileText className="w-4 h-4" />
+      default: return <FileText className="w-4 h-4" />
     }
   }
 
@@ -83,7 +84,8 @@ export default function LegalDocuments() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              🏛️ Legal Documents Workflow
+              <Building className="w-8 h-8" />
+              Legal Documents Workflow
             </h1>
             <p className="text-gray-600 mt-2">
               Full legal document workflow for legal team
@@ -100,7 +102,8 @@ export default function LegalDocuments() {
         <Card className="bg-white">
           <CardHeader>
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              📤 Upload Legal Documents
+              <Upload className="w-5 h-5 mr-2" />
+              Upload Legal Documents
             </h2>
           </CardHeader>
           <CardContent>
@@ -152,7 +155,8 @@ export default function LegalDocuments() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                📋 Recent Legal Documents ({legalDocuments.length} documents)
+                <FileText className="w-5 h-5 mr-2" />
+                Recent Legal Documents ({legalDocuments.length} documents)
               </h2>
               <Button variant="ghost" size="sm">
                 Manage All →
@@ -206,10 +210,12 @@ export default function LegalDocuments() {
                         disabled={selectedDocs.length === 0}
                         size="sm"
                       >
-                        🔍 Run Compliance Check
+                        <Search className="w-4 h-4 mr-2" />
+                        Run Compliance Check
                       </Button>
                       <Button variant="outline" size="sm" disabled={selectedDocs.length === 0}>
-                        🗑️ Delete
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete
                       </Button>
                     </div>
                   </div>
@@ -228,7 +234,8 @@ export default function LegalDocuments() {
         <Card className="bg-white">
           <CardHeader>
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              🔄 Available Workflows
+              <RotateCcw className="w-5 h-5 mr-2" />
+              Available Workflows
             </h2>
           </CardHeader>
           <CardContent className="space-y-6">

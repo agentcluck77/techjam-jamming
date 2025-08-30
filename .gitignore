@@ -30,12 +30,15 @@ venv/
 env/
 ENV/
 
-# IDE
+# IDE and AI Assistants
 .vscode/
 .idea/
+.claude/
+.cursorignore
 *.swp
 *.swo
 *~
+CLAUDE.md
 
 # OS
 .DS_Store
@@ -73,3 +76,48 @@ tmp/
 data/exports/
 data/uploads/
 data/temp/
+
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.env*
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
+
+# uv (Python package manager)
+.uv/
+
+# AI/LLM cache and outputs
+*.cache
+.anthropic/
+.openai/
+.google/
+
+# Docker volumes and data
+postgres_data/
+redis_data/
+docker-compose.override.yml
+
+# Development artifacts  
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+
+# Generated files
+*.pyc
+*.pyo
+*.pyd
+.coverage*
+htmlcov/
+
+# ChromaDB data (MCP services)
+src/legal-mcp/data/chroma/
+src/requirements-mcp/data/chroma/
+chroma_data/
+
+# Uploaded documents
+uploads/
+documents/

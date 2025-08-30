@@ -1,28 +1,37 @@
 """
-HTTP MCP Client - MCP Integration Implementation
-Replaces mock MCPs with real HTTP calls to MCP search services
+HTTP MCP Client - Real MCP Integration Implementation
+Provides HTTP calls to real MCP search services
 """
 from typing import Dict, Any, List
 import asyncio
 import aiohttp
 from datetime import datetime
+import logging
+import os
+
+logger = logging.getLogger(__name__)
 
 class MCPSearchClient:
     """
     HTTP client for calling real MCP search services
-    TODO: MCP Integration - Implement HTTP calls to replace mock MCPs
     """
     
     def __init__(self):
-        # MCP service URLs - Updated for 2-MCP Architecture
+        # MCP service URLs from environment variables
         self.mcp_services = {
-            'legal': {'url': 'http://legal-mcp:8000', 'timeout': 30},
-            'requirements': {'url': 'http://requirements-mcp:8000', 'timeout': 30}
+            'legal': {
+                'url': os.getenv('LEGAL_MCP_URL', 'http://localhost:8010'), 
+                'timeout': int(os.getenv('MCP_TIMEOUT_SECONDS', '30'))
+            },
+            'requirements': {
+                'url': os.getenv('REQUIREMENTS_MCP_URL', 'http://localhost:8011'), 
+                'timeout': int(os.getenv('MCP_TIMEOUT_SECONDS', '30'))
+            }
         }
     
     async def search_legal_mcp(self, search_query: str, feature_context: Dict[str, Any], jurisdictions: List[str] = None) -> Dict[str, Any]:
         """
-        TODO: MCP Integration - Call legal MCP service
+        Call legal MCP service for document search
         Search legal MCP across all jurisdictions with jurisdiction filtering
         
         Args:
@@ -33,17 +42,36 @@ class MCPSearchClient:
         Returns:
             Search results from legal MCP with jurisdiction metadata
         """
-        # TODO: MCP Integration - Implement HTTP call to legal MCP
-        # Expected API endpoint: POST /api/v1/search
-        # Request format: {"query": str, "jurisdictions": [str], "feature_context": dict, "max_results": 10}
-        # Response format: {"results": [...], "total_results": int, "search_time": float}
+        service = self.mcp_services['legal']
+        url = f"{service['url']}/api/v1/bulk_retrieve"
         
-        # Placeholder - replace with actual HTTP call
-        return {"results": [], "total_results": 0, "search_time": 0.0}
+        try:
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "include_content": True,
+                    "jurisdictions": jurisdictions
+                }
+                
+                async with session.post(
+                    url, 
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=service['timeout'])
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        logger.info(f"Legal MCP search completed: {result.get('total_documents', 0)} documents")
+                        return result
+                    else:
+                        logger.error(f"Legal MCP search failed: HTTP {response.status}")
+                        return {"documents": [], "total_documents": 0, "retrieval_time": 0.0}
+                        
+        except Exception as e:
+            logger.error(f"Legal MCP search error: {str(e)}")
+            return {"documents": [], "total_documents": 0, "retrieval_time": 0.0}
         
     async def search_requirements_mcp(self, search_query: str, feature_context: Dict[str, Any], doc_types: List[str] = None) -> Dict[str, Any]:
         """
-        TODO: MCP Integration - Call requirements MCP service
+        Call requirements MCP service for document search
         Search requirements MCP for PRDs, specs, and user stories
         
         Args:
@@ -54,17 +82,39 @@ class MCPSearchClient:
         Returns:
             Search results from requirements MCP with document metadata
         """
-        # TODO: MCP Integration - Implement HTTP call to requirements MCP
-        # Expected API endpoint: POST /api/v1/search
-        # Request format: {"query": str, "doc_types": [str], "feature_context": dict, "max_results": 5}
-        # Response format: {"results": [...], "total_results": int, "search_time": float}
+        service = self.mcp_services['requirements']
+        url = f"{service['url']}/api/v1/bulk_retrieve"
         
-        # Placeholder - replace with actual HTTP call
-        return {"results": [], "total_results": 0, "search_time": 0.0}
+        try:
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "format": "structured",
+                    "include_content": True,
+                    "limit": 50
+                }
+                if doc_types:
+                    payload["doc_types"] = doc_types
+                
+                async with session.post(
+                    url,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=service['timeout'])
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        logger.info(f"Requirements MCP search completed: {result.get('total_requirements', 0)} requirements")
+                        return result
+                    else:
+                        logger.error(f"Requirements MCP search failed: HTTP {response.status}")
+                        return {"requirements": [], "total_requirements": 0, "retrieval_time": 0.0}
+                        
+        except Exception as e:
+            logger.error(f"Requirements MCP search error: {str(e)}")
+            return {"requirements": [], "total_requirements": 0, "retrieval_time": 0.0}
     
     async def search_both_mcps(self, search_query: str, feature_context: Dict[str, Any]) -> Dict[str, Any]:
         """
-        TODO: MCP Integration - Search both legal and requirements MCPs in parallel
+        Search both legal and requirements MCPs in parallel
         Comprehensive search across legal documents and requirements documents
         
         Args:
@@ -74,34 +124,71 @@ class MCPSearchClient:
         Returns:
             Combined search results from both MCPs
         """
-        # TODO: MCP Integration - Implement parallel HTTP calls to both MCPs
-        # Use asyncio.gather for concurrent execution
-        # Combine results into unified response format
-        
-        # Placeholder - replace with actual parallel implementation
-        return {
-            "legal_results": {"results": [], "total_results": 0, "search_time": 0.0},
-            "requirements_results": {"results": [], "total_results": 0, "search_time": 0.0},
-            "combined_search_time": 0.0
-        }
+        try:
+            # Execute parallel searches
+            legal_task = self.search_legal_mcp(search_query, feature_context)
+            requirements_task = self.search_requirements_mcp(search_query, feature_context)
+            
+            legal_results, requirements_results = await asyncio.gather(
+                legal_task, requirements_task, return_exceptions=True
+            )
+            
+            # Handle exceptions
+            if isinstance(legal_results, Exception):
+                logger.error(f"Legal MCP search failed: {legal_results}")
+                legal_results = {"documents": [], "total_documents": 0, "retrieval_time": 0.0}
+                
+            if isinstance(requirements_results, Exception):
+                logger.error(f"Requirements MCP search failed: {requirements_results}")
+                requirements_results = {"requirements": [], "total_requirements": 0, "retrieval_time": 0.0}
+            
+            return {
+                "legal_results": legal_results,
+                "requirements_results": requirements_results,
+                "combined_search_time": legal_results.get("retrieval_time", 0) + requirements_results.get("retrieval_time", 0)
+            }
+            
+        except Exception as e:
+            logger.error(f"Parallel MCP search failed: {str(e)}")
+            return {
+                "legal_results": {"documents": [], "total_documents": 0, "retrieval_time": 0.0},
+                "requirements_results": {"requirements": [], "total_requirements": 0, "retrieval_time": 0.0},
+                "combined_search_time": 0.0
+            }
     
     async def health_check_all_services(self) -> Dict[str, bool]:
         """
-        TODO: MCP Integration - Implement health checks
         Check health status of both MCP services
         
         Returns:
             Dict mapping service names to health status
         """
-        # TODO: MCP Integration - Call GET /health on both MCP services
-        # Return service availability status
+        health_status = {}
         
-        # Placeholder - replace with actual health checks
-        return {service: False for service in self.mcp_services.keys()}
+        for service_name, service_config in self.mcp_services.items():
+            try:
+                url = f"{service_config['url']}/health"
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        url,
+                        timeout=aiohttp.ClientTimeout(total=5)
+                    ) as response:
+                        health_status[service_name] = response.status == 200
+                        if response.status == 200:
+                            health_data = await response.json()
+                            logger.info(f"{service_name} MCP healthy: {health_data.get('status', 'unknown')}")
+                        else:
+                            logger.warning(f"{service_name} MCP unhealthy: HTTP {response.status}")
+                            
+            except Exception as e:
+                logger.error(f"{service_name} MCP health check failed: {str(e)}")
+                health_status[service_name] = False
+                
+        return health_status
     
     async def search_for_query(self, query_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        TODO: MCP Integration - Search for user query context
+        Search for user query context
         Special search method for user queries (not feature analysis)
         Searches legal MCP for relevant regulations and context
         
@@ -111,9 +198,25 @@ class MCPSearchClient:
         Returns:
             Search results from legal MCP formatted for query response
         """
-        # TODO: MCP Integration - Convert query to legal MCP search format
-        # Call search_legal_mcp with appropriate parameters
-        # Format results for query advisory response
-        
-        # Placeholder - replace with actual implementation  
-        return []
+        try:
+            query = query_data.get("query", "")
+            context = query_data.get("context", {})
+            
+            # Search legal MCP for relevant regulations
+            legal_results = await self.search_legal_mcp(query, context)
+            
+            # Format results for query advisory response
+            formatted_results = []
+            for document in legal_results.get("documents", []):
+                formatted_results.append({
+                    "jurisdiction": document.get("jurisdiction", "Unknown"),
+                    "content": document.get("content", ""),
+                    "source_document": document.get("source_document", ""),
+                    "relevance_score": document.get("relevance_score", 0.0)
+                })
+                
+            return formatted_results
+            
+        except Exception as e:
+            logger.error(f"Query search failed: {str(e)}")
+            return []

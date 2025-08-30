@@ -41,12 +41,22 @@ This TRD defines the UI/UX design requirements for the TRD Lawyer Agent Complian
 
 ### 2.2 Backend Integration
 
-**Existing FastAPI Backend**: Minimal changes required  
-**MCP Services**: Direct integration with Legal MCP (port 8010) and Requirements MCP (port 8011)  
-**New Endpoints**: HITL management and workflow orchestration  
+**Existing FastAPI Backend**: Direct modifications allowed for web integration  
+**MCP Services**: Mock endpoints initially → Real MCP integration after teammates complete  
+**MCP Directories**: `src/legal-mcp/` and `src/requirements-mcp/` - DO NOT MODIFY (teammate territory)  
+**New Endpoints**: HITL management, workflow orchestration, and mock MCP endpoints  
 **Real-time Updates**: SSE streaming for progress and HITL prompts  
 
-### 2.3 Project Structure
+### 2.3 Implementation Strategy
+
+**Development Approach**:
+- **All 5 Pages**: Complete UI implementation with professional polish
+- **All 3 Workflows**: Full workflow support with HITL integration
+- **Mock MCPs First**: Simple mock endpoints based on teammate specifications
+- **Real MCP Later**: Seamless integration once teammates complete their services
+- **Docker Development**: Container-based development environment  
+
+### 2.4 Project Structure
 
 ```
 techjam-jamming/
@@ -95,7 +105,7 @@ techjam-jamming/
 └── README.md
 ```
 
-### 2.6 Docker Configuration
+### 2.5 Docker Configuration
 
 **Updated docker-compose.yml**:
 ```yaml
@@ -127,7 +137,7 @@ services:
   requirements-mcp: # Port 8011 (Tingli & JunHao)
 ```
 
-### 2.7 State Management Architecture
+### 2.6 State Management Architecture
 
 **Zustand Stores**:
 ```typescript
@@ -155,7 +165,7 @@ interface UIStore {
 }
 ```
 
-### 2.8 Real-time Communication
+### 2.7 Real-time Communication
 
 **Server-Sent Events (SSE)**:
 ```typescript
@@ -182,6 +192,38 @@ const handleHITLPrompt = async (workflowId: string, response: string) => {
     method: 'POST',
     body: JSON.stringify({ response })
   })
+}
+```
+
+### 2.8 HITL Prompt Specifications
+
+**Simple Yes/No Prompts**:
+```typescript
+interface SimpleHITLPrompt {
+  type: "yes_no"
+  question: "Is this requirement compliant with Utah social media regulations?"
+  options: ["YES", "NO"]
+  context: { requirement: string, regulation: string }
+}
+```
+
+**Region Clarification**:
+```typescript
+interface RegionHITLPrompt {
+  type: "region_selection"
+  question: "This requirement doesn't specify a jurisdiction. Which regions should we check?"
+  options: ["Utah", "EU", "California", "Florida", "Brazil", "All Regions"]
+  context: { requirement: string }
+}
+```
+
+**Detailed Assessment**:
+```typescript
+interface DetailedHITLPrompt {
+  type: "compliance_assessment"
+  question: "How should this requirement be classified?"
+  options: ["COMPLIANT", "NON-COMPLIANT", "NEEDS-REVIEW", "REQUIRES-MODIFICATION"]
+  context: { requirement: string, conflicting_regulations: string[] }
 }
 ```
 
@@ -557,61 +599,66 @@ Found 15 requirements to check for legal compliance
 
 ## 5. Implementation Phases
 
-### 5.1 Phase 1: Next.js Foundation + Core Flow (Week 1)
+### 5.1 Phase 1: Foundation + Mock Integration (Day 1)
 
 **Frontend Setup**:
 - [ ] **Next.js project initialization**: App Router setup with TypeScript
-- [ ] **shadcn/ui installation**: Core components (Button, Dialog, Progress, Table)
+- [ ] **shadcn/ui installation**: Core components (Button, Dialog, Progress, Table, Card)
 - [ ] **Tailwind configuration**: shadcn theme setup + custom styles
 - [ ] **Project structure**: Components, hooks, lib, stores organization
+- [ ] **All 5 pages**: Complete page structure and navigation
 
-**Core Primary Flow**:
-- [ ] **Requirements Check page**: react-dropzone + library prompt + recent checks
-- [ ] **Basic HITL sidebar**: Slide-out panel with shadcn components
-- [ ] **Results History page**: shadcn Table for analysis results display
-- [ ] **Navigation**: App Router routing between 5 pages
-
-**Backend Minimal Changes**:
+**Backend Integration**:
+- [ ] **Mock MCP endpoints**: Based on `legal-endpoints.md` and `requirements-endpoints.md`
 - [ ] **HITL endpoints**: `/api/workflow/{id}/hitl/*` for user interactions
 - [ ] **SSE endpoint**: `/api/workflow/{id}/progress` for real-time updates
+- [ ] **Enhanced TRD agent**: Modify `lawyer_trd_agent.py` for web integration
 - [ ] **CORS configuration**: Allow frontend (port 3000) → backend (port 8000)
 
-### 5.2 Phase 2: Full Workflow Integration (Week 2)
+**Core Workflow Integration**:
+- [ ] **Requirements Check flow**: Upload → Processing → HITL → Results (Workflow 3)
+- [ ] **Basic HITL sidebar**: Slide-out panel with yes/no and region prompts
+- [ ] **Results display**: Professional compliance report with shadcn components
+
+### 5.2 Phase 2: All Workflows + Advanced Features (Day 2)
+
+**Complete Workflow Support**:
+- [ ] **Legal Documents page**: Upload + past iteration detection (Workflow 2) + Workflow 1
+- [ ] **Document Library page**: Table with filtering/sorting + bulk operations
+- [ ] **Knowledge Base page**: Rich text editor for agent customization
+- [ ] **Advanced HITL integration**: All prompt types (yes/no, region, detailed assessment)
 
 **Advanced Components**:
-- [ ] **DocumentUpload component**: Advanced drag & drop with progress
-- [ ] **ComplianceResults component**: Detailed results with shadcn Cards
-- [ ] **WorkflowProgress component**: Real-time progress with SSE
-- [ ] **DocumentTable component**: shadcn Table with filtering/sorting
+- [ ] **DocumentUpload component**: Multi-file upload with progress indicators
+- [ ] **ComplianceResults component**: Detailed results with charts and exports
+- [ ] **WorkflowProgress component**: Real-time progress with step-by-step updates
+- [ ] **DocumentTable component**: Advanced table with search, filters, bulk actions
 
-**Full Workflow Support**:
-- [ ] **Legal Documents page**: Upload + past iteration detection + Workflow 1
-- [ ] **Workflow orchestration**: Start/stop workflows via API
-- [ ] **HITL state management**: Zustand stores for workflow state
-- [ ] **Real-time updates**: SSE integration for all 3 workflows
+**Professional Polish**:
+- [ ] **Loading states**: Skeleton components and spinners throughout
+- [ ] **Error handling**: User-friendly error messages and recovery
+- [ ] **Responsive design**: Professional desktop-optimized layouts
+- [ ] **Real-time updates**: SSE integration for all 3 workflows with state persistence
 
-**MCP Integration**:
-- [ ] **API client functions**: FastAPI → MCP service calls
-- [ ] **Error handling**: MCP service failures and retries
-- [ ] **Document Library page**: Basic table view and search
+### 5.3 Phase 3: Real MCP Integration + Demo Preparation (Day 3)
 
-### 5.3 Phase 3: Advanced Features + Polish (Week 3)
+**Real MCP Integration** (when teammates complete):
+- [ ] **Replace mock endpoints**: Seamless switch from mocks to real MCP services
+- [ ] **Legal MCP integration**: Connect to port 8010 for legal document operations
+- [ ] **Requirements MCP integration**: Connect to port 8011 for requirements processing
+- [ ] **Error handling**: Real service failures, timeouts, and retries
+- [ ] **Performance optimization**: Handle real processing times and large datasets
 
-**Advanced Pages**:
-- [ ] **Knowledge Base page**: Rich text editor with shadcn Textarea
-- [ ] **Advanced DocumentTable**: Search, filtering, bulk operations
-- [ ] **Results visualization**: Charts and graphs for compliance trends
+**Demo Preparation**:
+- [ ] **Sample data**: Realistic legal documents and requirements for demonstration
+- [ ] **Demo workflow**: Polished end-to-end user journey
+- [ ] **Performance tuning**: Optimize for smooth demo experience
+- [ ] **Docker deployment**: Complete containerized system ready for presentation
 
-**Production Polish**:
-- [ ] **Loading states**: Skeleton components and spinners
-- [ ] **Error boundaries**: Graceful error handling and recovery
-- [ ] **Performance optimization**: Code splitting and caching
-- [ ] **Responsive design**: Mobile-friendly layouts and interactions
-
-**Docker Integration**:
-- [ ] **Frontend Dockerfile**: Optimized Next.js container
-- [ ] **Docker-compose update**: Frontend service + existing backend/services
-- [ ] **Production build**: Optimized static generation where possible
+**Final Polish**:
+- [ ] **UI consistency**: Ensure all components follow shadcn/ui design system
+- [ ] **Error boundaries**: Comprehensive error handling throughout the application
+- [ ] **Documentation**: Updated README with setup and demo instructions
 
 ---
 
@@ -684,7 +731,41 @@ python -m src.main                   # Start FastAPI backend
 
 ## 7. Backend Changes Required
 
-### 7.1 New API Endpoints
+### 7.1 Mock MCP Endpoints
+
+**Mock Legal MCP (Initial Development)**:
+```python
+# In src/api/endpoints/mock_legal_mcp.py (new file)
+@router.post("/api/v1/legal/upload")
+async def mock_legal_upload(file: UploadFile):
+    """Mock legal document upload - returns success with simulated processing"""
+
+@router.post("/api/v1/legal/search")  
+async def mock_legal_search(request: SearchRequest):
+    """Mock legal document search - returns sample legal documents"""
+
+@router.get("/api/v1/legal/health")
+async def mock_legal_health():
+    """Mock health check for legal MCP"""
+```
+
+**Mock Requirements MCP (Initial Development)**:
+```python
+# In src/api/endpoints/mock_requirements_mcp.py (new file)  
+@router.post("/api/v1/requirements/upload")
+async def mock_requirements_upload(file: UploadFile):
+    """Mock requirements document upload and processing"""
+
+@router.post("/api/v1/requirements/search")
+async def mock_requirements_search(request: SearchRequest):
+    """Mock requirements search - returns sample requirements"""
+
+@router.post("/api/v1/requirements/bulk_retrieve")
+async def mock_requirements_bulk(request: BulkRequest):
+    """Mock bulk requirements retrieval for compliance checking"""
+```
+
+### 7.2 New API Endpoints
 
 **HITL Management**:
 ```python
@@ -718,7 +799,55 @@ async def get_recent_uploads(limit: int = 5):
     """Get recent uploads for landing page display"""
 ```
 
-### 7.2 Models Updates
+### 7.3 Enhanced TRD Agent Integration
+
+**Modified lawyer_trd_agent.py**:
+```python
+# Direct modifications to existing src/core/agents/lawyer_trd_agent.py
+class LawyerTRDAgent:
+    """Enhanced with web-friendly HITL and progress tracking"""
+    
+    def __init__(self, progress_callback=None, hitl_callback=None):
+        self.progress_callback = progress_callback
+        self.hitl_callback = hitl_callback
+    
+    async def workflow_3_web(self, requirements_document_id: str, workflow_id: str):
+        """Web-optimized Workflow 3: Requirements → Legal Compliance"""
+        
+        # Step 1: Extract requirements (with progress updates)
+        await self._update_progress(workflow_id, "Extracting requirements...", 1, 5)
+        requirements = await self._extract_requirements(requirements_document_id)
+        
+        # Step 2: For each requirement, check compliance with HITL
+        for i, req in enumerate(requirements):
+            await self._update_progress(workflow_id, f"Checking requirement {i+1}/{len(requirements)}", 2+i, 5)
+            
+            # HITL prompt for region if not specified
+            if not req.jurisdiction:
+                response = await self._hitl_prompt(workflow_id, {
+                    "type": "region_selection",
+                    "question": "Which regions should we check for this requirement?",
+                    "options": ["Utah", "EU", "California", "Florida", "Brazil", "All Regions"],
+                    "context": {"requirement": req.text}
+                })
+                req.jurisdiction = response
+            
+            # Check compliance and prompt for clarification if needed
+            compliance = await self._check_compliance(req)
+            if compliance.uncertain:
+                response = await self._hitl_prompt(workflow_id, {
+                    "type": "compliance_assessment", 
+                    "question": "How should this requirement be classified?",
+                    "options": ["COMPLIANT", "NON-COMPLIANT", "NEEDS-REVIEW"],
+                    "context": {"requirement": req.text, "analysis": compliance.analysis}
+                })
+                compliance.status = response
+        
+        await self._update_progress(workflow_id, "Generating compliance report...", 5, 5)
+        return self._generate_report(requirements)
+```
+
+### 7.4 Models Updates
 
 **New Pydantic Models**:
 ```python
@@ -775,5 +904,20 @@ class WebFriendlyLawyerTRDAgent(LawyerTRDAgent):
             "options": ["COMPLIANT", "NON-COMPLIANT", "NEEDS-REVIEW"]
         })
 ```
+
+### 7.5 Implementation Summary
+
+**Key Changes Made**:
+1. **Mock MCP Endpoints**: Simple mock services based on teammate specifications
+2. **Enhanced HITL Support**: Yes/No, region selection, and detailed assessment prompts  
+3. **Direct Agent Modification**: Modified existing `lawyer_trd_agent.py` for web integration
+4. **All 5 Pages**: Complete UI with professional shadcn/ui components
+5. **All 3 Workflows**: Full workflow support with progress tracking and HITL
+6. **Docker Development**: Container-based development environment
+
+**Integration Strategy**:
+- **Phase 1**: Mock MCPs → Complete frontend → Working demos
+- **Phase 2**: Real MCP integration when teammates complete services  
+- **Phase 3**: Demo preparation and performance optimization
 
 This architecture provides a **professional, scalable foundation** for the compliance platform while maintaining compatibility with existing MCP services and backend infrastructure.

@@ -11,6 +11,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { useDocumentStore } from '@/lib/stores'
 import { uploadDocument } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { FileText, Edit, Link, Building, Sparkles, Lightbulb, CheckCircle } from 'lucide-react'
 
 interface DocumentUploadProps {
   documentType: 'requirements' | 'legal'
@@ -26,6 +27,7 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
   const [textContent, setTextContent] = useState('')
   const [urlInput, setUrlInput] = useState('')
   const [jurisdiction, setJurisdiction] = useState('')
+  const [lawTitle, setLawTitle] = useState('')
   const [showJurisdictionPrompt, setShowJurisdictionPrompt] = useState(false)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const { addDocument, addUploadProgress, updateUploadProgress, removeUploadProgress } = useDocumentStore()
@@ -68,8 +70,10 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
       // Simulate upload progress
       updateUploadProgress(fileId, { progress: 20, status: 'uploading' })
 
-      // Include jurisdiction in metadata for legal documents
-      const metadata = selectedJurisdiction ? { jurisdiction: selectedJurisdiction } : undefined
+      // Include jurisdiction and law title in metadata for legal documents
+      const metadata: any = {}
+      if (selectedJurisdiction) metadata.jurisdiction = selectedJurisdiction
+      if (lawTitle && documentType === 'legal') metadata.law_title = lawTitle
 
       const document = await uploadDocument(file, documentType, metadata)
 
@@ -143,9 +147,11 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
         doc_type: documentType 
       }
 
-      // Add jurisdiction to metadata for legal documents
-      if (selectedJurisdiction && documentType === 'legal') {
-        requestBody.metadata = { jurisdiction: selectedJurisdiction }
+      // Add jurisdiction and law title to metadata for legal documents
+      if (documentType === 'legal') {
+        requestBody.metadata = {}
+        if (selectedJurisdiction) requestBody.metadata.jurisdiction = selectedJurisdiction
+        if (lawTitle) requestBody.metadata.law_title = lawTitle
       }
 
       const response = await fetch('/api/documents/upload-url', {
@@ -189,7 +195,7 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
   }
 
   const handleJurisdictionConfirm = async () => {
-    if (!jurisdiction.trim()) return
+    if (!jurisdiction.trim() || !lawTitle.trim()) return
 
     setShowJurisdictionPrompt(false)
     
@@ -205,6 +211,7 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
     // Reset state
     setPendingFile(null)
     setJurisdiction('')
+    setLawTitle('')
   }
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -244,7 +251,8 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
               inputMode === 'file' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
             )}
           >
-            📄 Upload File
+            <FileText className="w-4 h-4 mr-2" />
+            Upload File
           </button>
           <button
             onClick={() => setInputMode('text')}
@@ -253,7 +261,8 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
               inputMode === 'text' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
             )}
           >
-            ✏️ Text Input
+            <Edit className="w-4 h-4 mr-2" />
+            Text Input
           </button>
           {documentType === 'legal' && (
             <button
@@ -263,7 +272,8 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
                 inputMode === 'url' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
               )}
             >
-              🔗 From URL
+              <Link className="w-4 h-4 mr-2" />
+              From URL
             </button>
           )}
         </div>
@@ -282,7 +292,9 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
         <input {...getInputProps()} />
         
         <div className="space-y-4">
-          <div className="text-6xl">📄</div>
+          <div className="flex justify-center mb-4">
+            <FileText className="w-16 h-16 text-gray-400" />
+          </div>
           
           {isDragActive ? (
             <div>
@@ -318,7 +330,8 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
           {documentType === 'requirements' && (
             <div className="bg-blue-50 p-4 rounded-md">
               <p className="text-sm text-blue-700">
-                ✨ We'll extract your requirements and check them automatically
+                <Sparkles className="w-4 h-4 inline mr-1" />
+                We'll extract your requirements and check them automatically
                 against all legal regulations across jurisdictions
               </p>
             </div>
@@ -327,7 +340,8 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
           {documentType === 'legal' && (
             <div className="bg-amber-50 p-4 rounded-md">
               <p className="text-sm text-amber-700">
-                🏛️ You'll be asked to specify the jurisdiction for this legal document
+                <Building className="w-4 h-4 inline mr-1" />
+                You'll be asked to specify the jurisdiction for this legal document
                 to improve compliance analysis accuracy
               </p>
             </div>
@@ -342,7 +356,9 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
         )}>
           <div className="space-y-4">
             <div className="text-center">
-              <div className="text-4xl mb-4">🔗</div>
+              <div className="flex justify-center mb-4">
+                <Link className="w-12 h-12 text-gray-400" />
+              </div>
               <h3 className="text-xl font-medium text-gray-900">
                 Import Legal Document from URL
               </h3>
@@ -388,7 +404,8 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
 
             <div className="bg-green-50 p-4 rounded-md">
               <p className="text-sm text-green-700">
-                💡 Examples: Government legislation sites, PDF acts, official legal documents
+                <Lightbulb className="w-4 h-4 inline mr-1" />
+                Examples: Government legislation sites, PDF acts, official legal documents
               </p>
             </div>
           </div>
@@ -401,7 +418,9 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
         )}>
           <div className="space-y-4">
             <div className="text-center">
-              <div className="text-4xl mb-4">✏️</div>
+              <div className="flex justify-center mb-4">
+                <Edit className="w-12 h-12 text-gray-400" />
+              </div>
               <h3 className="text-xl font-medium text-gray-900">
                 Paste {documentType === 'requirements' ? 'Requirements' : 'Legal Document'} Text
               </h3>
@@ -446,7 +465,8 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
             {documentType === 'requirements' && (
               <div className="bg-blue-50 p-4 rounded-md">
                 <p className="text-sm text-blue-700">
-                  ✨ We'll analyze your requirements and check them automatically
+                  <Sparkles className="w-4 h-4 inline mr-1" />
+                  We'll analyze your requirements and check them automatically
                   against all legal regulations across jurisdictions
                 </p>
               </div>
@@ -455,7 +475,8 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
             {documentType === 'legal' && (
               <div className="bg-amber-50 p-4 rounded-md">
                 <p className="text-sm text-amber-700">
-                  🏛️ You'll be asked to specify the jurisdiction for this legal document
+                  <Building className="w-4 h-4 inline mr-1" />
+                  You'll be asked to specify the jurisdiction for this legal document
                   to improve compliance analysis accuracy
                 </p>
               </div>
@@ -468,16 +489,34 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
       <Dialog open={showJurisdictionPrompt} onOpenChange={setShowJurisdictionPrompt}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>🏛️ Specify Jurisdiction</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Building className="w-5 h-5" />
+              Legal Document Details
+            </DialogTitle>
             <DialogDescription>
-              Which jurisdiction does this legal document apply to? This helps improve compliance analysis accuracy.
+              Please provide the law title and jurisdiction to help improve compliance analysis accuracy.
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4">
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">
+                Law Title <span className="text-red-500">*</span>
+              </label>
+              <Input
+                placeholder="e.g., Utah Social Media Regulation Act 2025, GDPR, California Consumer Privacy Act"
+                value={lawTitle}
+                onChange={(e) => setLawTitle(e.target.value)}
+                className="w-full"
+              />
+              <p className="text-xs text-gray-500">
+                Enter the official name of the law, act, or regulation
+              </p>
+            </div>
+
             <div>
               <label className="text-sm font-medium text-gray-700 mb-2 block">
-                Select from common jurisdictions:
+                Jurisdiction <span className="text-red-500">*</span> - Select from common jurisdictions:
               </label>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                 {commonJurisdictions.map((jur) => (
@@ -511,12 +550,17 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
           </div>
 
           <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button variant="outline" onClick={() => setShowJurisdictionPrompt(false)} className="w-full sm:w-auto">
+            <Button variant="outline" onClick={() => {
+              setShowJurisdictionPrompt(false)
+              setJurisdiction('')
+              setLawTitle('')
+              setPendingFile(null)
+            }} className="w-full sm:w-auto">
               Cancel
             </Button>
             <Button 
               onClick={handleJurisdictionConfirm} 
-              disabled={!jurisdiction.trim()}
+              disabled={!jurisdiction.trim() || !lawTitle.trim()}
               className="w-full sm:w-auto"
             >
               Continue Upload
@@ -524,7 +568,8 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
           </DialogFooter>
           
           <p className="text-xs text-gray-500 mt-2 text-center">
-            💡 Jurisdiction helps the AI provide more accurate compliance analysis
+            <Lightbulb className="w-4 h-4 inline mr-1" />
+            Law title and jurisdiction help the AI provide more accurate compliance analysis
           </p>
         </DialogContent>
       </Dialog>
@@ -535,7 +580,8 @@ export function DocumentUpload({ documentType, onUploadComplete, className }: Do
           <DialogHeader>
             <DialogTitle>Document Uploaded</DialogTitle>
             <DialogDescription>
-              ✅ "{uploadedDocument?.name}" uploaded successfully
+              <CheckCircle className="w-4 h-4 inline mr-1" />
+              "{uploadedDocument?.name}" uploaded successfully
             </DialogDescription>
           </DialogHeader>
           

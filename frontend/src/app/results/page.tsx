@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { getComplianceResults } from '@/lib/api'
 import { ComplianceResult } from '@/lib/types'
+import { BarChart3, TrendingUp, Clock, FileText } from 'lucide-react'
 
 export default function ResultsHistory() {
   const [results, setResults] = useState<ComplianceResult[]>([])
@@ -90,7 +91,8 @@ export default function ResultsHistory() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              📊 Compliance Analysis History
+              <BarChart3 className="w-8 h-8" />
+              Compliance Analysis History
             </h1>
             <p className="text-gray-600 mt-2">
               Access past compliance analysis results
@@ -112,7 +114,8 @@ export default function ResultsHistory() {
         <Card className="bg-white">
           <CardHeader>
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              📈 Analysis Overview
+              <TrendingUp className="w-5 h-5" />
+              Analysis Overview
             </h2>
           </CardHeader>
           <CardContent>
@@ -146,7 +149,8 @@ export default function ResultsHistory() {
         <Card className="bg-white">
           <CardHeader>
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              🕒 Recent Compliance Checks
+              <Clock className="w-5 h-5" />
+              Recent Compliance Checks
             </h2>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -171,7 +175,8 @@ export default function ResultsHistory() {
                         <div className="flex items-start justify-between">
                           <div>
                             <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                              📋 {result.summary}
+                              <FileText className="w-4 h-4" />
+                              {result.summary}
                             </h3>
                             <div className="flex items-center gap-4 text-sm text-gray-600 mt-1">
                               <span>Completed: {formatTimeAgo(result.completedAt)}</span>

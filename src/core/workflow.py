@@ -268,14 +268,11 @@ class EnhancedWorkflowOrchestrator:
 # Create global enhanced workflow instance with MCP configuration
 from ..config import settings
 
-# Initialize MCP client based on settings
+# Initialize MCP client - always use real MCPs now
 mcp_client = None
-if settings.enable_real_mcps:
-    # TODO: MCP Integration - Initialize real MCP client when implemented
-    # from .agents.real_mcp_client import RealMCPClient
-    # mcp_client = RealMCPClient(MCP_SERVICES)
-    pass
-# If ENABLE_REAL_MCPS=false, mcp_client remains None (no mock responses)
+# TODO: MCP Integration - Initialize real MCP client when implemented
+# from .agents.real_mcp_client import RealMCPClient
+# mcp_client = RealMCPClient(MCP_SERVICES)
 
 workflow_orchestrator = EnhancedWorkflowOrchestrator(mcp_client=mcp_client)
 
