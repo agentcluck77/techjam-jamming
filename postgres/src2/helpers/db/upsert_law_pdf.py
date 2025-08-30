@@ -47,6 +47,17 @@ async def upsert_law(region: str, pdf_path: str, statute: str) -> None:
 
 import asyncio
 
+def upsert_law_pdf_by_name(region, pdf_file_name, statute):
+    root_path = os.getenv("ROOT_PATH")
+    pdf_paths = get_pdf_path(pdf_file_name, root_path)
+    print(pdf_paths)
+    if not pdf_paths:
+        raise FileNotFoundError("PDF not found")
+    pdf_path = pdf_paths[0]  # take the first match
+    asyncio.run(upsert_law(region, pdf_path, statute))
+
+
+
 if __name__ == "__main__":
     root_path = os.getenv("ROOT_PATH")
     print(root_path)

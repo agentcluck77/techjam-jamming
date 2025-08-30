@@ -37,7 +37,7 @@ async def regulation(region: str):
     return f"Error getting regulation from {region}"
 
 
-def main():
+def get_regulation():
     if len(sys.argv) < 2:
         print("Please provide a region.")
         sys.exit(1)
@@ -48,4 +48,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    get_regulation()
