@@ -1,20 +1,17 @@
 # Multi-stage Dockerfile for Geo-Regulation AI System  
 # Phase 1D: Basic deployment setup with uv
 
-FROM python:3.11-alpine as base
+FROM python:3.11-slim as base
 
 # Install system dependencies and uv
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
-    g++ \
-    musl-dev \
     curl \
-    netcat-openbsd \
-    linux-headers \
-    postgresql-dev \
-    rust \
-    cargo \
-    && pip install --no-cache-dir uv
+    netcat-traditional \
+    libpq-dev \
+    && pip install --no-cache-dir uv \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
@@ -55,8 +52,8 @@ RUN uv pip install --system --no-cache \
 # Copy application code
 COPY . .
 
-# Create non-root user for security (Alpine uses adduser)
-RUN adduser -D -s /bin/sh app && \
+# Create non-root user for security (Debian uses useradd)
+RUN useradd -r -s /bin/bash -m -d /home/app app && \
     chown -R app:app /app && \
     chmod +x scripts/setup_db.py && \
     chmod +x start.sh

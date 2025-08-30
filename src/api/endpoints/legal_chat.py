@@ -261,14 +261,20 @@ Respond with ONE action type and explain your reasoning:
 
 ACTION_TYPE: [mcp_call|analysis|response|hitl_prompt]
 REASONING: [why you chose this action AND how it advances beyond your previous steps]
-DETAILS: [specific details for the action]
+RESPONSE_CONTENT: [if action_type is "response", provide the complete final response to the user here]
+DETAILS: [specific details for other action types]
+
+IMPORTANT: If you choose "response" action, provide the complete final legal compliance analysis in RESPONSE_CONTENT that directly answers the user's question.
 
 What is your next action?"""
 
     try:
+        # Use more tokens for response actions to allow complete analysis
+        max_tokens = 1500 if "response" in system_prompt.lower() else 300
+        
         response = await llm_client.complete(
             system_prompt,
-            max_tokens=300,
+            max_tokens=max_tokens,
             temperature=0.1
         )
         
@@ -279,6 +285,7 @@ What is your next action?"""
         action_type = None
         reasoning = ""
         details = {}
+        response_content = ""
         
         # Primary parsing method
         for line in content.split('\n'):
@@ -287,6 +294,8 @@ What is your next action?"""
                 action_type = line.replace("ACTION_TYPE:", "").strip()
             elif line.startswith("REASONING:"):
                 reasoning = line.replace("REASONING:", "").strip()
+            elif line.startswith("RESPONSE_CONTENT:"):
+                response_content = line.replace("RESPONSE_CONTENT:", "").strip()
             elif line.startswith("DETAILS:"):
                 details_str = line.replace("DETAILS:", "").strip()
                 details = {"description": details_str}
@@ -331,6 +340,7 @@ What is your next action?"""
             details={
                 "reasoning": reasoning,
                 "description": details.get("description", ""),
+                "response_content": response_content,  # Store the actual response content for response actions
                 "raw_response": content
             },
             requires_approval=requires_approval
@@ -582,14 +592,21 @@ async def _agent_send_final_response(session_id: str, action: AgentAction):
     agent_state = agent_sessions[session_id]
     
     try:
-        # Extract just the clean response content
-        response_content = action.details.get("description", "")
+        # Extract the actual LLM response content - prioritize response_content field for response actions
+        response_content = (
+            action.details.get("response_content", "") or 
+            action.details.get("raw_response", "") or 
+            action.details.get("description", "") or
+            "Analysis complete - no response content available"
+        ).strip()
         
-        # Mark workflow as complete with clean response
+        logger.info(f"🔍 Final response content: {response_content[:200]}...")
+        
+        # Mark workflow as complete with the actual LLM response
         active_workflows[session_id] = {
             "id": session_id,
             "status": "complete", 
-            "final_response": response_content,  # Just the clean answer
+            "final_response": response_content,  # The actual LLM-generated response
             "completed_at": datetime.now().isoformat(),
             "tool_results_count": len(agent_state.tool_results)
         }

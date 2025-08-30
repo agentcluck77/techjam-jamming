@@ -213,24 +213,48 @@ export function HITLSidebar() {
       
       const result = await response.json()
       
-      // Add initial response message with reasoning
-      const initialMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        type: 'assistant',
-        content: result.response || 'No response received from lawyer agent',
-        timestamp: new Date(),
-        workflow_id: result.workflow_id,
-        reasoning: result.reasoning?.map((step: any) => ({
-          type: step.type,
-          content: step.content,
-          duration: step.duration,
-          timestamp: new Date(step.timestamp)
-        })),
-        reasoning_duration: result.reasoning_duration,
-        is_reasoning_complete: result.is_reasoning_complete
+      // Only add message if it's not a generic "Analyzing" status message
+      // Skip generic status messages - just show reasoning dropdown directly
+      if (!result.response?.includes('Analyzing your request') && result.response?.trim() !== '⏳ Analyzing your request...') {
+        const initialMessage: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          type: 'assistant',
+          content: result.response || 'No response received from lawyer agent',
+          timestamp: new Date(),
+          workflow_id: result.workflow_id,
+          reasoning: result.reasoning?.map((step: any) => ({
+            type: step.type,
+            content: step.content,
+            duration: step.duration,
+            timestamp: new Date(step.timestamp)
+          })),
+          reasoning_duration: result.reasoning_duration,
+          is_reasoning_complete: result.is_reasoning_complete
+        }
+        
+        setChatMessages(prev => [...prev, initialMessage])
+      } else {
+        // For "Analyzing" messages, just create a reasoning-only message
+        if (result.reasoning && result.reasoning.length > 0) {
+          const reasoningMessage: ChatMessage = {
+            id: (Date.now() + 1).toString(),
+            type: 'assistant',
+            content: '', // Empty content - will only show reasoning dropdown
+            timestamp: new Date(),
+            workflow_id: result.workflow_id,
+            reasoning: result.reasoning?.map((step: any) => ({
+              type: step.type,
+              content: step.content,
+              duration: step.duration,
+              timestamp: new Date(step.timestamp)
+            })),
+            reasoning_duration: result.reasoning_duration,
+            is_reasoning_complete: result.is_reasoning_complete
+          }
+          
+          setChatMessages(prev => [...prev, reasoningMessage])
+        }
       }
-      
-      setChatMessages(prev => [...prev, initialMessage])
       
       // If a workflow was started, start polling for HITL prompts and responses
       if (result.workflow_started && result.workflow_id) {
@@ -285,22 +309,25 @@ export function HITLSidebar() {
         }
         // Check if workflow is complete
         else if (!result.workflow_started || result.response.includes('Analysis Failed') || result.response.includes('complete')) {
-          const finalMessage: ChatMessage = {
-            id: Date.now().toString(),
-            type: 'assistant',
-            content: result.response,
-            timestamp: new Date(),
-            reasoning: result.reasoning?.map((step: any) => ({
-              type: step.type,
-              content: step.content,
-              duration: step.duration,
-              timestamp: new Date(step.timestamp)
-            })),
-            reasoning_duration: result.reasoning_duration,
-            is_reasoning_complete: result.is_reasoning_complete
+          // Only add final message if it has meaningful content (not status messages)
+          if (result.response && !result.response.includes('Thinking...') && !result.response.includes('received. Continuing')) {
+            const finalMessage: ChatMessage = {
+              id: Date.now().toString(),
+              type: 'assistant',
+              content: result.response,
+              timestamp: new Date(),
+              reasoning: result.reasoning?.map((step: any) => ({
+                type: step.type,
+                content: step.content,
+                duration: step.duration,
+                timestamp: new Date(step.timestamp)
+              })),
+              reasoning_duration: result.reasoning_duration,
+              is_reasoning_complete: result.is_reasoning_complete
+            }
+            
+            setChatMessages(prev => [...prev, finalMessage])
           }
-          
-          setChatMessages(prev => [...prev, finalMessage])
           isPolling = false
         }
         // Still in progress - update existing message with new reasoning
@@ -378,14 +405,8 @@ export function HITLSidebar() {
         throw new Error(`HTTP ${result.status}: ${responseData.detail || 'Failed to send response'}`)
       }
       
-      // Add a confirmation message
-      const confirmationMessage: ChatMessage = {
-        id: Date.now().toString(),
-        type: 'assistant',
-        content: `✓ Response "${response}" received. Continuing analysis...`,
-        timestamp: new Date(),
-      }
-      setChatMessages(prev => [...prev, confirmationMessage])
+      // Remove confirmation message - just continue silently
+      // No need to show "Response received" messages to user
       
       // Remove the HITL prompt message since it's been processed
       setTimeout(() => {
@@ -562,18 +583,21 @@ export function HITLSidebar() {
                     {/* Regular chat message */}
                     {message.type !== 'hitl_prompt' && (
                       <div>
-                        <div
-                          className={cn(
-                            "rounded-lg px-3 py-2 text-sm max-w-[220px]",
-                            message.type === 'user'
-                              ? 'bg-blue-600 text-white rounded-br-sm'
-                              : 'bg-gray-100 text-gray-900 rounded-bl-sm'
-                          )}
-                        >
-                          <p className="whitespace-pre-wrap">{message.content}</p>
-                        </div>
+                        {/* Only show message box if there's actual content */}
+                        {message.content && message.content.trim() && (
+                          <div
+                            className={cn(
+                              "rounded-lg px-3 py-2 text-sm max-w-[220px]",
+                              message.type === 'user'
+                                ? 'bg-blue-600 text-white rounded-br-sm'
+                                : 'bg-gray-100 text-gray-900 rounded-bl-sm'
+                            )}
+                          >
+                            <p className="whitespace-pre-wrap">{message.content}</p>
+                          </div>
+                        )}
                         
-                        {/* Cursor-style reasoning dropdown */}
+                        {/* Cursor-style reasoning dropdown - shown even without message content */}
                         {message.type === 'assistant' && (
                           <ReasoningDropdown message={message} />
                         )}
