@@ -1353,35 +1353,121 @@ Return ONLY: true or false"""
         Identical functionality to current autonomous agent but with LawyerAgent intelligence
         """
         
-        state = self.active_sessions[session_id]
-        max_iterations = 10  # Prevent infinite loops
+        state = self.active_sessions.get(session_id)
+        if not state:
+            return f"❌ **Analysis Failed**: Session {session_id} not found"
+        
+        max_iterations = 20  # Increased to allow for proper workflow completion
         iteration = 0
         
         try:
             while iteration < max_iterations and state.status == "active":
                 iteration += 1
                 
+                # COMPLETION CHECK: Need MINIMUM 1 requirements AND 1 legal call
+                requirements_calls = len([r for r in state.tool_results if r.get('tool') == 'requirements_mcp'])
+                legal_calls = len([r for r in state.tool_results if r.get('tool') == 'legal_mcp'])
+                
+                if requirements_calls >= 1 and legal_calls >= 1:
+                    logger.info(f"🎯 AUTO-COMPLETION: Have {state.mcp_sent_count} MCP calls and {len(state.tool_results)} results - forcing analysis and response")
+                    
+                    # Execute analysis immediately
+                    analysis_action = AgentAction(
+                        action_type="analysis",
+                        details={
+                            "reasoning": "Auto-completion: Sufficient MCP data collected",
+                            "focus": "compliance gaps analysis"
+                        }
+                    )
+                    await self._perform_analysis(session_id, analysis_action)
+                    
+                    # Execute final response immediately
+                    response_action = AgentAction(
+                        action_type="response",
+                        details={
+                            "reasoning": "Auto-completion: Analysis complete",
+                            "response_type": "compliance_gaps"
+                        }
+                    )
+                    final_response = await self._generate_final_response(session_id, response_action)
+                    state.status = "completed"
+                    return final_response
+                
+                # PREVENT SPAM: If we're waiting for HITL or have pending decisions, stop making new ones
+                if state.status == "waiting_hitl" or state.pending_mcp_decision:
+                    logger.info(f"⏸️ Already waiting for HITL approval, skipping new decision generation (iteration {iteration})")
+                    await asyncio.sleep(1.0)  # Wait before checking again
+                    continue
+                
                 # Get next action from LLM using configurable prompts
                 next_action = await self._decide_next_action(session_id, user_message, context)
                 
                 if not next_action:
-                    state.status = "completed"
-                    break
+                    # FALLBACK: Infer next action based on current state instead of stopping
+                    logger.warning(f"❌ LLM decision parsing failed, using intelligent fallback")
+                    next_action = self._intelligent_fallback_action(state)
+                    
+                if not next_action:
+                    logger.error(f"❌ Both LLM decision and fallback failed, forcing completion")
+                    # FORCE FINAL RESPONSE even if everything else failed
+                    if len(state.tool_results) > 0:
+                        final_response = await self._generate_final_response(session_id, AgentAction(
+                            action_type="response",
+                            details={"reasoning": "Emergency completion after failures", "response_type": "compliance_gaps"}
+                        ))
+                        state.status = "completed"
+                        return final_response
+                    else:
+                        state.status = "completed"
+                        return "❌ **Analysis Failed** - Unable to complete analysis due to workflow errors."
                     
                 # Execute the action
                 if next_action.action_type == "mcp_call":
-                    if state.mcp_sent_count >= 5:
-                        # Force analysis when MCP limit reached
-                        next_action.action_type = "analysis"
-                        await self._perform_analysis(session_id, next_action)
+                    if state.mcp_sent_count >= 3:  # REDUCED FROM 5 TO 3!
+                        # Force analysis after 3 MCP calls to prevent infinite loop
+                        logger.warning(f"🛑 MCP limit reached ({state.mcp_sent_count}), forcing analysis phase")
+                        next_action = AgentAction(
+                            action_type="analysis",
+                            details={
+                                "reasoning": "Forced analysis after 3 MCP calls",
+                                "focus": "compliance gaps analysis"
+                            }
+                        )
+                        # Continue to analysis execution below, don't return
+                    elif state.mcp_sent_count >= 2 and len(state.tool_results) >= 2:
+                        # Have sufficient MCP data (requirements + legal), proceed to analysis
+                        logger.info(f"✅ Sufficient MCP data collected ({state.mcp_sent_count} calls, {len(state.tool_results)} results), proceeding to analysis")
+                        next_action = AgentAction(
+                            action_type="analysis", 
+                            details={
+                                "reasoning": "Sufficient MCP data collected - requirements and legal context available",
+                                "focus": "compliance gaps analysis"
+                            }
+                        )
+                        # Continue to analysis execution below
                     else:
                         # MCP calls require HITL approval
                         await self._request_mcp_approval(session_id, next_action)
+                        # Check if state changed (duplicate detected, status set to active)
+                        if state.status == "active":
+                            # Duplicate detected, continue to next iteration to get new LLM decision
+                            continue
                         state.status = "waiting_hitl"
                         return session_id  # Return session_id for polling
                         
                 elif next_action.action_type == "analysis":
                     await self._perform_analysis(session_id, next_action)
+                    # Automatically progress to response phase after analysis
+                    response_action = AgentAction(
+                        action_type="response",
+                        details={
+                            "reasoning": "Analysis complete, generating final compliance report",
+                            "response_type": "compliance_analysis"
+                        }
+                    )
+                    final_response = await self._generate_final_response(session_id, response_action)
+                    state.status = "completed"
+                    return final_response
                     
                 elif next_action.action_type == "response":
                     final_response = await self._generate_final_response(session_id, next_action)
@@ -1396,10 +1482,26 @@ Return ONLY: true or false"""
                 # Brief yield for responsiveness
                 await asyncio.sleep(0.05)
             
-            # Max iterations reached
+            # Max iterations reached - FORCE FINAL ANALYSIS
             if iteration >= max_iterations:
-                state.status = "completed"
-                return "⏰ **Analysis Complete** - Reached processing limit. Results available above."
+                logger.warning(f"🚨 Max iterations reached ({max_iterations}) - checking if we have minimum required data")
+                
+                # Check if we have minimum required calls
+                requirements_calls = len([r for r in state.tool_results if r.get('tool') == 'requirements_mcp'])
+                legal_calls = len([r for r in state.tool_results if r.get('tool') == 'legal_mcp'])
+                
+                if requirements_calls >= 1 and legal_calls >= 1:
+                    logger.info(f"✅ Have minimum required calls (req: {requirements_calls}, legal: {legal_calls}) - generating final report")
+                    final_response = await self._generate_final_response(session_id, AgentAction(
+                        action_type="response",
+                        details={"reasoning": "Max iterations reached - emergency completion with sufficient data", "response_type": "compliance_gaps"}
+                    ))
+                    state.status = "completed"
+                    return final_response
+                else:
+                    logger.error(f"❌ Insufficient data: req calls: {requirements_calls}, legal calls: {legal_calls}")
+                    state.status = "completed"
+                    return f"⏰ **Analysis Failed** - Insufficient data collected. Need minimum 1 requirements call and 1 legal call. Got {requirements_calls} requirements, {legal_calls} legal."
                 
         except Exception as e:
             state.status = "error"
@@ -1416,7 +1518,10 @@ Return ONLY: true or false"""
         Replaces hardcoded prompt with get_system_prompt()
         """
         
-        state = self.active_sessions[session_id]
+        state = self.active_sessions.get(session_id)
+        if not state:
+            return None
+        
         decision_start = datetime.now()
         
         # Build context from conversation and tool results
@@ -1496,9 +1601,10 @@ RESPONSE_CONTENT: [If action_type is "response", provide focused compliance gap 
 DETAILS: [For other action types: specific MCP query, analysis focus, etc.]
 
 === WORKFLOW PROGRESSION RULES ===
-- mcp_call: Use when you need MORE information (requirements OR legal rules)
-- analysis: Use when you have BOTH requirements AND legal context to analyze
+- mcp_call: Use when you need MORE information (requirements OR legal rules) AND tool calls < 3
+- analysis: Use when you have BOTH requirements AND legal context to analyze OR tool calls >= 3
 - response: Use when analysis is COMPLETE and ready to provide final compliance report
+- CRITICAL: If tool calls >= 3, you MUST choose analysis or response, NEVER mcp_call
 - AVOID: Repeating similar MCP calls - move to next workflow step
 - If "Just executed MCP: Yes", prefer analysis or response over another mcp_call
 
@@ -1522,6 +1628,10 @@ What is your autonomous decision for the next action?"""
             # Parse agent decision (reuse existing parsing logic)
             action = self._parse_agent_decision(content, analysis_count)
             
+            # DEBUG: Log what the LLM returned and what we parsed
+            logger.info(f"🤖 LLM Decision Response: {content[:200]}...")
+            logger.info(f"🎯 Parsed Action: {action.action_type if action else 'FAILED TO PARSE'}")
+            
             if action:
                 # Record reasoning step
                 decision_duration = (datetime.now() - decision_start).total_seconds()
@@ -1535,9 +1645,72 @@ What is your autonomous decision for the next action?"""
             return action
             
         except Exception as e:
-            print(f"❌ Decision failed: {e}")
+            logger.error(f"❌ Decision failed: {e}")
             return None
     
+    def _intelligent_fallback_action(self, state: AutonomousAgentState) -> Optional[AgentAction]:
+        """
+        Intelligent fallback when LLM decision parsing fails
+        Uses state analysis to determine next logical action
+        """
+        logger.info(f"🧠 Intelligent fallback - analyzing state to determine next action")
+        
+        # Count different types of completed steps
+        mcp_calls_made = state.mcp_sent_count
+        has_tool_results = len(state.tool_results) > 0
+        analysis_steps = len([step for step in state.reasoning_steps if "analysis" in step.content.lower()])
+        response_steps = len([step for step in state.reasoning_steps if "response" in step.content.lower()])
+        
+        logger.info(f"📊 State: MCP calls={mcp_calls_made}, Tool results={len(state.tool_results)}, Analysis steps={analysis_steps}, Response steps={response_steps}")
+        
+        # Decision logic based on workflow progression
+        if mcp_calls_made == 0:
+            # No MCP calls yet - need to start with requirements extraction
+            return AgentAction(
+                action_type="mcp_call",
+                details={
+                    "reasoning": "Fallback: No MCP calls made yet, need to extract requirements",
+                    "tool": "requirements_mcp",
+                    "query": "extract document requirements"
+                },
+                requires_approval=True
+            )
+        
+        elif has_tool_results and analysis_steps == 0:
+            # Have MCP results but no analysis yet - time to analyze
+            return AgentAction(
+                action_type="analysis",
+                details={
+                    "reasoning": "Fallback: Have MCP results, time to analyze compliance gaps",
+                    "focus": "compliance analysis"
+                }
+            )
+            
+        elif mcp_calls_made >= 2 and analysis_steps == 0:
+            # Have made multiple MCP calls but no analysis - force analysis
+            return AgentAction(
+                action_type="analysis",
+                details={
+                    "reasoning": "Fallback: 2+ MCP calls made, forcing analysis to prevent loop",
+                    "focus": "compliance analysis with available data"
+                }
+            )
+        
+        elif analysis_steps > 0 and response_steps == 0:
+            # Have done analysis - time for final response
+            return AgentAction(
+                action_type="response", 
+                details={
+                    "reasoning": "Fallback: Analysis complete, generating final compliance report",
+                    "response_type": "compliance_gaps"
+                }
+            )
+            
+        else:
+            # Already have response or unclear state - force completion
+            logger.warning(f"🏁 Fallback: Workflow appears complete or unclear state, forcing completion")
+            return None
+
     def _parse_agent_decision(self, content: str, analysis_count: int) -> Optional[AgentAction]:
         """
         Parse LLM response into AgentAction - reuse existing parsing logic
@@ -1549,39 +1722,67 @@ What is your autonomous decision for the next action?"""
         details = {}
         response_content = ""
         
-        # Parse structured response
+        # Parse structured response with robust fuzzy matching
         lines = content.split('\n')
         i = 0
         while i < len(lines):
             line = lines[i].strip()
-            if line.startswith("ACTION_TYPE:"):
-                action_type = line.replace("ACTION_TYPE:", "").strip()
-            elif line.startswith("REASONING:"):
-                reasoning = line.replace("REASONING:", "").strip()
-            elif line.startswith("RESPONSE_CONTENT:"):
-                # Handle multi-line response content
-                response_lines = []
-                first_line_content = line.replace("RESPONSE_CONTENT:", "").strip()
-                if first_line_content:
-                    response_lines.append(first_line_content)
-                
-                i += 1
-                while i < len(lines):
-                    next_line = lines[i].strip()
-                    if (next_line.startswith("DETAILS:") or 
-                        next_line.startswith("ACTION_TYPE:") or 
-                        next_line.startswith("REASONING:")):
-                        i -= 1
-                        break
-                    if next_line:
-                        response_lines.append(next_line)
+            line_lower = line.lower()
+            
+            # Flexible ACTION_TYPE parsing
+            if line_lower.startswith(("action_type:", "action:", "type:", "next action:")):
+                colon_pos = line.find(':')
+                if colon_pos != -1:
+                    action_type = line[colon_pos+1:].strip()
+                    
+            # Flexible REASONING parsing  
+            elif line_lower.startswith(("reasoning:", "reason:", "rationale:")):
+                colon_pos = line.find(':')
+                if colon_pos != -1:
+                    reasoning = line[colon_pos+1:].strip()
+                    
+            # Flexible RESPONSE_CONTENT parsing
+            elif line_lower.startswith(("response_content:", "response:", "content:")):
+                colon_pos = line.find(':')
+                if colon_pos != -1:
+                    response_lines = []
+                    first_line_content = line[colon_pos+1:].strip()
+                    if first_line_content:
+                        response_lines.append(first_line_content)
+                    
                     i += 1
-                
-                response_content = "\n".join(response_lines).strip()
-            elif line.startswith("DETAILS:"):
-                details_str = line.replace("DETAILS:", "").strip()
-                details = {"description": details_str}
+                    while i < len(lines):
+                        next_line = lines[i].strip()
+                        next_lower = next_line.lower()
+                        if (next_lower.startswith(("details:", "action_type:", "reasoning:", "action:", "type:"))):
+                            i -= 1
+                            break
+                        if next_line:
+                            response_lines.append(next_line)
+                        i += 1
+                    
+                    response_content = "\n".join(response_lines).strip()
+                    
+            # Flexible DETAILS parsing
+            elif line_lower.startswith(("details:", "detail:")):
+                colon_pos = line.find(':')
+                if colon_pos != -1:
+                    details_str = line[colon_pos+1:].strip()
+                    details = {"description": details_str}
             i += 1
+        
+        # FALLBACK: Try keyword-based parsing if structured parsing failed
+        if not action_type:
+            content_lower = content.lower()
+            if "mcp" in content_lower or "search" in content_lower:
+                action_type = "mcp_call" 
+                reasoning = "Inferred from content containing MCP/search keywords"
+            elif "analy" in content_lower:
+                action_type = "analysis"
+                reasoning = "Inferred from content containing analysis keywords"  
+            elif "response" in content_lower or "report" in content_lower:
+                action_type = "response"
+                reasoning = "Inferred from content containing response/report keywords"
         
         # Normalize MCP-related action types
         if action_type in ["legal_mcp", "requirements_mcp"]:
@@ -1637,6 +1838,41 @@ What is your autonomous decision for the next action?"""
         
         # Store the pending MCP action for execution after approval
         state = self.active_sessions[session_id]
+        
+        # CRITICAL FIX: Check for duplicate MCP queries to prevent infinite loops
+        existing_queries = [
+            result.get('query', '') for result in state.tool_results 
+            if result.get('tool') == mcp_details["tool"]
+        ]
+        if mcp_details["query"] in existing_queries:
+            print(f"⚠️ Duplicate MCP query detected: {mcp_details['query']} - forcing immediate analysis")
+            # IMMEDIATE ANALYSIS: Don't wait for next LLM loop, execute analysis NOW
+            analysis_action = AgentAction(
+                action_type="analysis",
+                details={
+                    "reasoning": "Duplicate MCP detected - have sufficient data for analysis",
+                    "focus": "compliance gaps analysis"
+                }
+            )
+            await self._perform_analysis(session_id, analysis_action)
+            
+            # Automatically progress to response after analysis
+            response_action = AgentAction(
+                action_type="response",
+                details={
+                    "reasoning": "Analysis complete after duplicate MCP detection",
+                    "response_type": "compliance_gaps"
+                }
+            )
+            final_response = await self._generate_final_response(session_id, response_action)
+            state.status = "completed"
+            
+            # Store final response so frontend can retrieve it
+            state.conversation_history.append({
+                "role": "assistant", 
+                "content": final_response
+            })
+            return
         state.pending_mcp_decision = {
             "action": "mcp_call",
             "tool": mcp_details["tool"],
@@ -1665,7 +1901,9 @@ What is your autonomous decision for the next action?"""
         Uses LLM intelligence like current autonomous agent
         """
         
-        state = self.active_sessions[session_id]
+        state = self.active_sessions.get(session_id)
+        if not state:
+            return None
         
         # Build context for MCP tool selection
         conversation_context = "\n".join([
@@ -1756,7 +1994,9 @@ Make your decision based on workflow progression and previous calls."""
     
     async def _execute_mcp_call(self, session_id: str, action: AgentAction):
         """Execute approved MCP call and store results"""
-        state = self.active_sessions[session_id]
+        state = self.active_sessions.get(session_id)
+        if not state:
+            return
         
         # Get MCP details
         mcp_details = await self._determine_mcp_tool(session_id, action)
@@ -1951,10 +2191,13 @@ Focus on detection and reasoning only."""
                 current_llm_client = create_llm_client(state.api_keys)
             
             analysis_start = datetime.now()
-            response = await current_llm_client.complete(
-                analysis_prompt,
-                max_tokens=500,
-                temperature=0.1
+            response = await asyncio.wait_for(
+                current_llm_client.complete(
+                    analysis_prompt,
+                    max_tokens=300,  # Reduced for faster analysis
+                    temperature=0.1
+                ),
+                timeout=15.0  # 15 second timeout for analysis
             )
             
             analysis_result = response.get("content", "Analysis failed").strip()
@@ -1968,8 +2211,17 @@ Focus on detection and reasoning only."""
                 timestamp=datetime.now().isoformat()
             ))
             
+        except asyncio.TimeoutError:
+            logger.warning(f"⏰ Analysis timed out after 15 seconds, proceeding to response generation")
+            # Store timeout analysis step
+            state.reasoning_steps.append(ReasoningStep(
+                type="analysis", 
+                content="Analysis timed out - proceeding with available MCP data",
+                duration=15.0,
+                timestamp=datetime.now().isoformat()
+            ))
         except Exception as e:
-            print(f"❌ Analysis failed: {e}")
+            logger.error(f"❌ Analysis failed: {e}")
     
     async def _generate_final_response(self, session_id: str, action: AgentAction) -> str:
         """Generate final compliance analysis response"""
@@ -1980,19 +2232,97 @@ Focus on detection and reasoning only."""
         if response_content:
             return response_content
         
-        # Generate response using analysis
+        # Generate comprehensive compliance response using MCP results
         state = self.active_sessions[session_id]
         
-        # Summarize analysis steps
-        analysis_summary = []
-        for step in state.reasoning_steps:
-            if step.type == "analysis":
-                analysis_summary.append(step.content)
+        # Extract MCP results for analysis - FIX: Use correct field names
+        requirements_data = []
+        legal_data = []
         
-        if analysis_summary:
-            return "\n\n".join(analysis_summary)
-        else:
-            return "📋 **Analysis Complete** - Review the reasoning steps above for detailed findings."
+        logger.info(f"🔍 Processing {len(state.tool_results)} tool results for response generation")
+        
+        for result in state.tool_results:
+            tool_name = result.get('tool', 'unknown')
+            mcp_result = result.get('result', {})
+            
+            logger.info(f"🔍 Processing tool: {tool_name}")
+            
+            if tool_name == 'requirements_mcp':
+                # Extract the actual content from MCP response
+                if isinstance(mcp_result, list) and mcp_result:
+                    # MCP returns TextContent objects
+                    content = mcp_result[0].text if hasattr(mcp_result[0], 'text') else str(mcp_result[0])
+                    requirements_data.append(content)
+                    logger.info(f"✅ Requirements data extracted: {len(content)} chars")
+                else:
+                    requirements_data.append(str(mcp_result))
+                    
+            elif tool_name == 'legal_mcp':
+                # Extract the actual content from MCP response  
+                if isinstance(mcp_result, list) and mcp_result:
+                    # MCP returns TextContent objects
+                    content = mcp_result[0].text if hasattr(mcp_result[0], 'text') else str(mcp_result[0])
+                    legal_data.append(content)
+                    logger.info(f"✅ Legal data extracted: {len(content)} chars")
+                else:
+                    legal_data.append(str(mcp_result))
+        
+        # Build comprehensive response prompt
+        system_prompt = get_system_prompt()
+        
+        response_prompt = f"""{system_prompt}
+
+=== COMPLIANCE ANALYSIS REPORT ===
+Generate a comprehensive compliance analysis report based on the MCP research results.
+
+Requirements Found:
+{chr(10).join(requirements_data) if requirements_data else "No requirements data available"}
+
+Legal Regulations Found:
+{chr(10).join(legal_data) if legal_data else "No legal data available"}
+
+REPORT STRUCTURE:
+1. **Executive Summary** - Key compliance status and risk level
+2. **Requirements Analysis** - What the feature does
+3. **Regulatory Compliance** - Specific Utah law requirements  
+4. **Compliance Gaps** - Where requirements don't meet regulations
+5. **Recommendations** - Specific actions needed
+6. **Implementation Priority** - High/Medium/Low with timelines
+
+Make it actionable and specific to Utah Social Media Regulation Act."""
+        
+        logger.info(f"🚀 Generating final response with {len(requirements_data)} requirements and {len(legal_data)} legal sources")
+        
+        try:
+            # Use user's API keys if provided
+            current_llm_client = llm_client
+            if state.api_keys:
+                from ..llm_service import create_llm_client
+                current_llm_client = create_llm_client(state.api_keys)
+            
+            # Add timeout for response generation
+            response = await asyncio.wait_for(
+                current_llm_client.complete(
+                    response_prompt,
+                    max_tokens=1500,  # Reduced for faster response
+                    temperature=0.1
+                ),
+                timeout=20.0  # 20 second timeout
+            )
+            
+            final_analysis = response.get("content", "").strip()
+            
+            if final_analysis:
+                return final_analysis
+            else:
+                return "📋 **Analysis Complete** - Unable to generate detailed analysis. Please review MCP results above."
+                
+        except asyncio.TimeoutError:
+            logger.error(f"❌ Final response generation timed out after 20 seconds")
+            return "📋 **Analysis Complete** - Response generation timed out. Based on the MCP research, please review the requirements and legal findings above."
+        except Exception as e:
+            logger.error(f"❌ Final response generation failed: {e}")
+            return "📋 **Analysis Complete** - Error generating final report. Please review reasoning steps above."
     
     async def _request_user_input(self, session_id: str, action: AgentAction):
         """Request additional user input via HITL"""

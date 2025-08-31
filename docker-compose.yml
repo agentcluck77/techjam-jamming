@@ -3,9 +3,9 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database
+  # PostgreSQL Database with pgvector extension
   postgres:
-    image: postgres:15
+    image: pgvector/pgvector:pg15
     environment:
       - POSTGRES_DB=geolegal
       - POSTGRES_USER=user

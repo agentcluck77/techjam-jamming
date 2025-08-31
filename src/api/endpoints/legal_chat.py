@@ -828,6 +828,15 @@ async def _agent_execute_mcp_call(session_id: str, action: AgentAction):
         # CRITICAL FIX: Increment mcp_sent_count to prevent infinite MCP loops
         agent_state.mcp_sent_count += 1
         
+        # CRITICAL FIX: Check for duplicate MCP queries to prevent infinite loops
+        existing_queries = [
+            exec.get("query") for exec in agent_state.mcp_executions_for_chat 
+            if exec.get("tool") == mcp_tool
+        ]
+        if query in existing_queries:
+            logger.warning(f"⚠️ Duplicate MCP query detected: {query} - skipping execution")
+            return
+        
         # Add full MCP results to conversation (don't truncate - agent needs complete data)
         result_content = json.dumps(result, indent=2)
         if len(result_content) > 10000:  # Only truncate if extremely large (>10k chars)
@@ -837,6 +846,10 @@ async def _agent_execute_mcp_call(session_id: str, action: AgentAction):
             "role": "tool", 
             "content": f"MCP Tool {mcp_tool} executed successfully. Retrieved data:\n\n{result_content}"
         })
+        
+        # CRITICAL FIX: Synchronize mcp_sent_count with enhanced agent state
+        if session_id in enhanced_lawyer_agent.active_sessions:
+            enhanced_lawyer_agent.active_sessions[session_id].mcp_sent_count = agent_state.mcp_sent_count
         
         logger.info(f"✅ Agent MCP call completed successfully")
         
@@ -1145,6 +1158,15 @@ async def _execute_approved_mcp_call(session_id: str):
         # CRITICAL FIX: Increment mcp_sent_count to prevent infinite MCP loops
         agent_state.mcp_sent_count += 1
         
+        # CRITICAL FIX: Check for duplicate MCP queries to prevent infinite loops
+        existing_queries = [
+            exec.get("query") for exec in agent_state.mcp_executions_for_chat 
+            if exec.get("tool") == tool_decision["tool"]
+        ]
+        if tool_decision["query"] in existing_queries:
+            logger.warning(f"⚠️ Duplicate MCP query detected: {tool_decision['query']} - skipping execution")
+            return
+        
         # Atomic append operation
         mcp_execution = {
             "tool": tool_decision["tool"],
@@ -1159,6 +1181,10 @@ async def _execute_approved_mcp_call(session_id: str):
         
         # Clear the pending decision
         agent_state.pending_mcp_decision = None
+        
+        # CRITICAL FIX: Synchronize mcp_sent_count with enhanced agent state
+        if session_id in enhanced_lawyer_agent.active_sessions:
+            enhanced_lawyer_agent.active_sessions[session_id].mcp_sent_count = agent_state.mcp_sent_count
         
         logger.info(f"✅ Executed approved MCP call: {tool_decision['tool']}")
         
