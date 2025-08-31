@@ -1,0 +1,157 @@
+# Docker Compose - Phase 1D Implementation
+# Complete system deployment for backbone handoff
+version: '3.8'
+
+services:
+  # PostgreSQL Database with pgvector extension
+  postgres:
+    image: pgvector/pgvector:pg15
+    environment:
+      - POSTGRES_DB=geolegal
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./src/requirements-mcp/init.sql:/docker-entrypoint-initdb.d/02-requirements-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d geolegal"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Main Application Container (renamed to backend for clarity)
+  backend:
+    build: .
+    ports:
+      - "8000:8000"  # FastAPI only
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres:5432/geolegal
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - API_KEY=demo-key-2025
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=development
+      # Streamlined feature flags
+      - ENABLE_BATCH_PROCESSING=false
+      # MCP Service URLs
+      - LEGAL_MCP_URL=http://legal-mcp:8010
+      - REQUIREMENTS_MCP_URL=http://requirements-mcp:8011
+      - MCP_TIMEOUT_SECONDS=30
+    depends_on:
+      postgres:
+        condition: service_healthy
+      legal-mcp:
+        condition: service_healthy
+      requirements-mcp:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  # Legal MCP Service - Real PostgreSQL + pgvector implementation ✅ COMPLETED
+  legal-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uv run python src/legal-mcp/server.py http
+    ports:
+      - "8010:8010"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=geolegal
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - LOG_LEVEL=INFO
+      - SENTENCE_TRANSFORMERS_HOME=/app/cache/sentence_transformers
+      - TRANSFORMERS_CACHE=/app/cache/transformers
+      - HF_HOME=/app/cache/hf
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    volumes:
+      # Mount legal documents directory if needed
+      - ./src/legal-mcp/infodump:/app/src/legal-mcp/infodump:ro
+      # Mount cache directory for sentence transformers
+      - legal_mcp_cache:/app/cache
+
+  # Requirements MCP Service - Real functional implementation
+  requirements-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uv run python src/requirements-mcp/server.py http
+    ports:
+      - "8011:8011"
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres:5432/geolegal
+      - CHROMA_HOST=requirements-chroma
+      - CHROMA_PORT=8000
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      requirements-chroma:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8011/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Legal MCP uses PostgreSQL + pgvector (no separate ChromaDB needed)
+  # ChromaDB not needed - Legal MCP uses PostgreSQL with pgvector extension
+
+  # Requirements MCP Team - ChromaDB for requirements documents
+  requirements-chroma:
+    image: chromadb/chroma:latest
+    ports:
+      - "8002:8000"
+    volumes:
+      - requirements_chroma_data:/chroma/chroma
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  requirements_chroma_data:
+  legal_mcp_cache:
+
+networks:
+  default:
+    name: geolegal-network

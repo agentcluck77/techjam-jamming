@@ -1,0 +1,187 @@
+# Environment
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+.env.test
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE and AI Assistants
+.vscode/
+.idea/
+.claude/
+.cursorignore
+*.swp
+*.swo
+*~
+CLAUDE.md
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite3
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Docker
+.dockerignore
+
+# Data files (competition data, exports)
+data/exports/
+data/uploads/
+data/temp/
+data/chromadb/
+data/config/
+
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.env*
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
+
+# uv (Python package manager)
+.uv/
+
+# AI/LLM cache and outputs
+*.cache
+.anthropic/
+.openai/
+.google/
+
+# Docker volumes and data
+postgres_data/
+redis_data/
+docker-compose.override.yml
+
+# Development artifacts  
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+
+# Generated files
+*.pyc
+*.pyo
+*.pyd
+.coverage*
+htmlcov/
+
+# ChromaDB data (MCP services)
+src/legal-mcp/data/chroma/
+src/requirements-mcp/data/chroma/
+chroma_data/
+*.chroma/
+chroma/
+
+# Uploaded documents
+uploads/
+documents/
+
+# Sentence transformers cache
+.sentence_transformers_cache/
+.transformers_cache/
+transformers_cache/
+
+# Config directories
+data/config/
+
+# Debug and test files
+debug_*.py
+test_*.py
+test_requirements_migration.py
+
+# AI/ML model caches and embeddings
+*.pt
+*.bin
+*.safetensors
+embeddings/
+model_cache/
+
+# Additional Python patterns
+.python-version
+.venv/
+venv*/
+conda-meta/
+Pipfile.lock
+
+# Additional Next.js patterns
+frontend/.env.production
+frontend/.env.development
+frontend/.vercel
+frontend/*.log
+
+# Package manager lock files (keep package-lock.json but ignore yarn.lock)
+frontend/yarn.lock
+frontend/pnpm-lock.yaml
+
+# Additional development files
+*.orig
+.mergify.yml
+
+# Archive and deprecated
+archive/
+deprecated/
+
+# Core data uploads (MCP processing)
+src/core/data/uploads/
+
+# Additional log files
+backend.log
+frontend.log
+mcp.log
+
+# Virtual environment variants
+.venv*/
+venv*/
