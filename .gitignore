@@ -134,6 +134,10 @@ documents/
 .transformers_cache/
 transformers_cache/
 
+# Archive and deprecated directories
+archive/
+deprecated/
+
 # Config directories
 data/config/
 
