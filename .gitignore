@@ -142,6 +142,16 @@ debug_*.py
 test_*.py
 test_requirements_migration.py
 
+# Markdown files (except README)
+*.md
+!README.md
+
+# Test scripts
+*test*.py
+test_*
+tests/
+*_test.py
+
 # AI/ML model caches and embeddings
 *.pt
 *.bin
